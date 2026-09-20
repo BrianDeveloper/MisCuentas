@@ -1,0 +1,9 @@
+{
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "skipLibCheck": true
+  },
+  "tasks": {
+    "check": "deno check --all functions/auth/index.ts functions/rates/index.ts functions/clients/index.ts functions/settings/index.ts functions/qr/index.ts functions/export/index.ts"
+  }
+}

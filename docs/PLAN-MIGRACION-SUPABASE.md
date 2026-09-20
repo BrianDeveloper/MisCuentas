@@ -2,8 +2,12 @@
 
 Objetivo: dejar de depender de un servidor propio (Express + SQLite) y publicar la
 app como sitio estático en GitHub Pages, con los datos en Supabase (Postgres) y el
-trabajo de "servidor" resuelto con Supabase (RLS, Storage, Edge Functions) y un
-pequeño worker Node para WhatsApp.
+trabajo de "servidor" resuelto con Supabase (Edge Functions + Storage) y un
+pequeño worker Node para WhatsApp. (Opcional, Fase 7: publicarla también como
+app Android híbrida con Capacitor.)
+
+- Repo GitHub: **`BrianDeveloper/MisCuentas`** (público) → Pages en
+  `https://brianddeveloper.github.io/MisCuentas/` → `base: '/MisCuentas/'`.
 
 ## 1. Arquitectura actual (lo que se va a transformar)
 
@@ -98,12 +102,35 @@ pequeño worker Node para WhatsApp.
 - Commit de respaldo/rama y limpieza de artefactos locales.
 
 ## 5. Decisiones a confirmar antes de ejecutar
-1. **Auth**: ¿mantener PIN (A1, recomendada) o pasar a Supabase Auth email+password (A2)?
-2. **Worker WhatsApp**: ¿Tailscale Funnel en tu PC (recomendada, $0) o un VPS gratuito (Oracle Always Free, setup manual)?
-3. **Éxito de Pages en repo público**: ¿aceptas repo público? Si quieres privado, ¿prefieres Netlify para el estático?
-4. **Datos**: ¿"en limpio" (sin migrar) o migrar los clientes/movimientos actuales de SQLite?
+1. **Auth**: **mantener PIN (A1, elegida)** — Edge `auth-*` + tabla `app_sessions`; token en localStorage.
+2. **Worker WhatsApp**: **Tailscale Funnel en tu PC (elegida, $0)** — URL https estable.
+3. **Éxito de Pages en repo público**: **aceptado** — repo `MisCuentas` público.
+4. **Datos**: **migrar** lo actual (clientes, movimientos, tasas, PIN y configuración pago móvil) de SQLite a Supabase vía script `seed.mjs`.
 
 ## 6. Fuera de alcance / notas
 - GitHub Pages no puede ejecutar Node: por eso el worker WhatsApp existe aparte.
 - Las cookies no cruzan dominios (github.io -> supabase.co): el token de sesión va en `localStorage` del navegador.
 - Subir el QR base64 ya no pasa por el servidor Express: va a `qr-upload` (Edge) -> Storage, y `PagoMovilButton`/worker usan su URL pública.
+
+## 7. Fase 7 (OPCIONAL): App Android híbrida con Capacitor
+**Estado: pendiente de decisión.** Solo se hace después de tener la migración lista y la app desplegada en Pages.
+
+Arquitectura: la app ya será "SPA estático + Supabase/Edge remoto + worker vía URL https", de modo que el wrapper híbrido no cambia nada del backend.
+
+Opciones:
+- **A. APK standalone**: `@capacitor/cli`, `@capacitor/core`, `@capacitor/android`; `webDir: client/dist`; se empaqueta el build dentro del `.apk`. Se actualiza con nueva build.
+- **B. App que apunta a la URL de Pages**: `server.url: https://brianddeveloper.github.io/MisCuentas/` en `capacitor.config.ts`; se actualiza sola al desplegar, requiere internet.
+
+Detalles que ya la benefician:
+- Supabase (https) y el worker vía Tailscale Funnel funcionan desde Android sin cambios.
+- El token de PIN en `localStorage` persiste en el WebView de Capacitor.
+- Solo hace falta Android Studio (o Capacitor Cloud) para firmar el `.apk`.
+- El escaneo del QR de vinculación de WhatsApp se hace desde la cámara del móvil igual que hoy.
+
+Checklist (cuando se active):
+1. `npm i -w client @capacitor/core @capacitor/cli @capacitor/android`.
+2. `npx cap init MisCuentas com.<dominio>.miscuentas --web-dir=dist`.
+3. Configurar `capacitor.config.ts` (opción A: empaquetado local; opción B: `server.url`).
+4. `npm run build -w client && npx cap add android && npx cap sync`.
+5. Abrir `android/` en Android Studio → Build APK (o Capacitor Cloud).
+6. Probar login PIN, QR público de Storage y envío WhatsApp desde el móvil.
