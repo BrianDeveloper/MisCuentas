@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: clip;
+}
+
+html,
+body {
+  max-width: 100%;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  background-color: #f1f5f9;
+  overflow-x: hidden;
+}
+
+#root {
+  max-width: 100%;
+  min-width: 0;
+}
+
+@theme {
+  --animate-conv-in: conv-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-conv-pop: conv-pop 0.2s ease-out;
+  --animate-conv-float: conv-float 2.6s ease-in-out infinite;
+  --animate-conv-ping-soft: conv-ping-soft 2.6s ease-out infinite;
+}
+
+@keyframes conv-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes conv-pop {
+  from {
+    transform: scale(0.94);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes conv-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes conv-ping-soft {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+/* Evita el zoom automático de iOS en inputs al enfocar */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
