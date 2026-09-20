@@ -35,8 +35,9 @@ settingsRouter.get('/pago-movil', (_req, res) => {
       tipoDoc: config.tipoDoc ?? 'V',
       documento: config.documento ?? '',
       telefono: config.telefono ?? '',
+      baseUrl: getSetting('pagoQrBase') ?? '',
       hasQr,
-      qrFile: qrFile || '' ,
+      qrFile: qrFile || '',
     },
     qrBase: getSetting('pagoQrBase') ?? '',
   });
@@ -67,7 +68,7 @@ settingsRouter.put('/pago-movil', (req, res) => {
   const hasQr = qrFile != null && fs.existsSync(path.join(uploadsDir, qrFile));
   res.json({
     ok: true,
-    pago: { banco, tipoDoc, documento, telefono, hasQr, qrFile: qrFile || ''  },
+    pago: { banco, tipoDoc, documento, telefono, baseUrl, hasQr, qrFile: qrFile || '' },
     qrBase: baseUrl,
   });
 });

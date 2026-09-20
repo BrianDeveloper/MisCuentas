@@ -33,6 +33,11 @@ export default function Settings() {
   const [pagoMsg, setPagoMsg] = useState('');
   const [pagoMsgType, setPagoMsgType] = useState<'ok' | 'err'>('ok');
 
+  const [wa, setWa] = useState<{ connected: boolean; phone: string | null } | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [qrTs, setQrTs] = useState(0);
+  const [waMsg, setWaMsg] = useState('');
+
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
     setter(text);
     msetter(type);
@@ -61,6 +66,55 @@ export default function Settings() {
   useEffect(() => {
     load().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    api<{ connected: boolean; phone: string | null }>('/api/whatsapp/status')
+      .then(setWa)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!linking) return;
+    const statusId = window.setInterval(async () => {
+      try {
+        const s = await api<{ connected: boolean; phone: string | null }>(
+          '/api/whatsapp/status',
+        );
+        setWa(s);
+        if (s.connected) setLinking(false);
+      } catch {
+        /* reintenta */
+      }
+    }, 2000);
+    const qrId = window.setInterval(() => setQrTs(Date.now()), 8000);
+    return () => {
+      window.clearInterval(statusId);
+      window.clearInterval(qrId);
+    };
+  }, [linking]);
+
+  const linkWhatsApp = async () => {
+    setWaMsg('');
+    setLinking(true);
+    try {
+      const r = await api<{ connected: boolean; qr: string | null }>(
+        '/api/whatsapp/link',
+        { method: 'POST' },
+      );
+      if (r.connected) {
+        setWa({ connected: true, phone: null });
+        setLinking(false);
+      } else {
+        setWaMsg('Escanea el QR desde tu teléfono.');
+        setQrTs(Date.now());
+      }
+    } catch (err) {
+      setLinking(false);
+      setWaMsg(
+        err instanceof Error ? err.message : 'No se pudo iniciar la vinculación.',
+      );
+    }
+  };
 
   const refresh = async () => {
     setRefreshing(true);
@@ -473,6 +527,81 @@ export default function Settings() {
               </p>
             )}
           </form>
+        </section>
+
+        <section className="rounded-xl bg-white p-5 shadow">
+          <h2 className="text-lg font-bold text-slate-800">WhatsApp vinculado</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Al vincular tu WhatsApp, el botón &quot;Pago móvil&quot; envía el mensaje
+            y el QR como imagen adjunta, sin depender del enlace wa.me.
+          </p>
+          {wa === null ? (
+            <p className="mt-4 text-sm text-slate-400">Consultando estado…</p>
+          ) : wa.connected ? (
+            <div className="mt-4">
+              <p className="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M19.916 4.626a.75.75 0 011.208.659v11.43a.75.75 0 01-1.28.53L15.5 12.7v1.3a3.25 3.25 0 01-3.25 3.25h-1.5A3.25 3.25 0 017.5 14V10A3.25 3.25 0 0110.75 6.75h1.5A3.25 3.25 0 0115.5 10v1.3l4.344-5.015a.75.75 0 01.072-.063zM12.75 8.25h-1.5a1.75 1.75 0 00-1.75 1.75v4a1.75 1.75 0 001.75 1.75h1.5a1.75 1.75 0 001.75-1.75v-4a1.75 1.75 0 00-1.75-1.75z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                Conectado {wa.phone ? `· ${wa.phone}` : ''}
+              </p>
+              <p className="mt-3 text-xs text-slate-400">
+                Los envíos se hacen desde tu número vinculado.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={linkWhatsApp}
+                disabled={linking}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {linking ? 'Esperando escaneo…' : 'Conectar WhatsApp'}
+              </button>
+              {linking && !wa?.connected && (
+                <div className="mt-4">
+                  {qrTs > 0 ? (
+                    <img
+                      src={`/api/whatsapp/qr.png?ts=${qrTs}`}
+                      alt="QR de vinculación"
+                      className="mx-auto h-56 w-56 rounded-lg border border-slate-200"
+                    />
+                  ) : (
+                    <p className="py-10 text-center text-sm text-slate-400">
+                      Generando QR…
+                    </p>
+                  )}
+                  <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+                    <li>Abre WhatsApp en tu celular.</li>
+                    <li>
+                      Menú → Ajustes → Dispositivos vinculados → Vincular un
+                      dispositivo.
+                    </li>
+                    <li>Escanea este QR con la cámara.</li>
+                  </ol>
+                </div>
+              )}
+              {!linking && waMsg && (
+                <p className="mt-3 text-sm text-amber-700">{waMsg}</p>
+              )}
+              <p className="mt-3 text-xs text-slate-400">
+                Es una sesión adicional de tu cuenta (dispositivo vinculado).
+                Cierra sesión desde el celular cuando no lo uses de forma
+                permanente.
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="rounded-xl bg-white p-5 shadow">
