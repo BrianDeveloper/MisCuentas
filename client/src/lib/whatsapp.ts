@@ -63,11 +63,9 @@ export function buildPagoMovilMessage(opts: {
     `- Teléfono: ${opts.pago.telefono}`,
     '',
     `- Monto adeudado: ${fmtBs(opts.balanceBs)} (aprox. ${fmtUsd(opts.usdHoy)})`,
+    '',
+    '¡Gracias!',
   ];
-  if (opts.qrUrl) {
-    lines.push('', `QR de pago: ${opts.qrUrl}`);
-  }
-  lines.push('', '¡Gracias!');
   return lines.join('\n');
 }
 
