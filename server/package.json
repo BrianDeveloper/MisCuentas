@@ -11,20 +11,17 @@
     "db:backup": "node --no-warnings scripts/db.mjs backup"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.24",
     "cheerio": "^1.0.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "node-cron": "^3.0.3",
-    "qrcode": "^1.5.4"
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.0",
     "@types/node-cron": "^3.0.11",
-    "@types/qrcode": "^1.5.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

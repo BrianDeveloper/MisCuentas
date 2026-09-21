@@ -3,8 +3,6 @@ import type { PagoMovilConfig } from './whatsapp';
 
 export interface SettingsResp {
   pago: PagoMovilConfig | null;
-  whatsappBaseUrl: string;
-  whatsappToken: string;
   msgReminder: string;
   msgPago: string;
 }

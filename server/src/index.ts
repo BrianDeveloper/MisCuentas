@@ -11,8 +11,6 @@ import { ratesRouter } from './routes/rates.js';
 import { exportRouter } from './routes/export.js';
 import { movementsRouter } from './routes/movements.js';
 import { settingsRouter } from './routes/settings.js';
-import { whatsappRouter } from './routes/whatsapp.js';
-import { initWhatsApp } from './whatsapp.js';
 import { upsertRate, getLatestRate, dataDir } from './db.js';
 import { fetchBcvToday } from './bcv.js';
 
@@ -50,7 +48,6 @@ app.use('/api/movements', movementsRouter);
 app.use('/api/rates', ratesRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/settings', settingsRouter);
-app.use('/api/whatsapp', whatsappRouter);
 fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/api/pago', express.static(uploadsDir));
 
@@ -88,7 +85,6 @@ app.listen(port, () => {
   console.log(
     `[server] Tasa actual almacenada: ${getLatestRate()?.usd_ves ?? 'ninguna'} `,
   );
-  void initWhatsApp();
 });
 
 cron.schedule(

@@ -93,8 +93,6 @@ export interface PagoMovilConfig {
   qrFile: string;
   baseUrl: string;
   qrUrl: string;
-  whatsappBaseUrl?: string;
-  whatsappToken?: string;
 }
 
 export function buildPagoMovilMessage(
@@ -136,4 +134,18 @@ export function buildPagoMovilUrl(opts: {
       qrUrl: opts.qrUrl,
     }),
   );
+}
+
+/**
+ * Descarga la imagen del QR desde la URL y la copia al portapapeles como imagen PNG.
+ * Lanza error si el navegador no soporta la Clipboard API o falla la descarga.
+ */
+export async function copyQrToClipboard(qrUrl: string): Promise<void> {
+  const res = await fetch(qrUrl);
+  if (!res.ok) throw new Error('No se pudo descargar el QR');
+  const blob = await res.blob();
+  const pngBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
+  await navigator.clipboard.write([
+    new ClipboardItem({ 'image/png': pngBlob }),
+  ]);
 }

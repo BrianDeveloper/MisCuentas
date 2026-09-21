@@ -13,8 +13,8 @@ import {
   type PagoMovilConfig,
 } from '../lib/whatsapp';
 
-type SectionId = 'rate' | 'pago' | 'worker' | 'messages' | 'pin';
-const SECTION_ORDER: SectionId[] = ['rate', 'pago', 'worker', 'messages', 'pin'];
+type SectionId = 'rate' | 'pago' | 'messages' | 'pin';
+const SECTION_ORDER: SectionId[] = ['rate', 'pago', 'messages', 'pin'];
 const OPEN_KEY = 'mc_settings_open';
 
 function loadOpenSections(): Set<SectionId> {
@@ -119,15 +119,6 @@ export default function Settings() {
   const [savingPago, setSavingPago] = useState(false);
   const [removingQr, setRemovingQr] = useState(false);
 
-  const [wUrl, setWUrl] = useState('');
-  const [wToken, setWToken] = useState('');
-  const [savingWorker, setSavingWorker] = useState(false);
-  const [checkingWorker, setCheckingWorker] = useState(false);
-  const [workerStatus, setWorkerStatus] = useState<{ connected: boolean; phone: string | null } | null>(null);
-  const [workerQr, setWorkerQr] = useState<string | null>(null);
-  const [linkingWorker, setLinkingWorker] = useState(false);
-  const [unlinkingWorker, setUnlinkingWorker] = useState(false);
-
   const [mReminder, setMReminder] = useState('');
   const [mPago, setMPago] = useState('');
   const [savingMsgs, setSavingMsgs] = useState(false);
@@ -149,11 +140,9 @@ export default function Settings() {
   const load = async () => {
     const [h, p] = await Promise.all([
       api<{ history: Rate[] }>('rates', { query: { action: 'history', limit: 15 } }),
-      api<{ pago: PagoMovilConfig | null; whatsappBaseUrl: string; whatsappToken: string; msgReminder: string; msgPago: string }>('settings'),
+      api<{ pago: PagoMovilConfig | null; msgReminder: string; msgPago: string }>('settings'),
     ]);
     setHistory(h.history);
-    setWUrl(p.whatsappBaseUrl ?? '');
-    setWToken(p.whatsappToken ?? '');
     setMReminder(p.msgReminder?.trim() ? p.msgReminder : DEFAULT_BALANCE_TEMPLATE);
     setMPago(p.msgPago?.trim() ? p.msgPago : DEFAULT_PAGO_TEMPLATE);
     if (p.pago) {
@@ -334,125 +323,6 @@ export default function Settings() {
       setRemovingQr(false);
     }
   };
-
-  const saveWorker = async (e: FormEvent) => {
-    e.preventDefault();
-    if (savingWorker) return;
-    setSavingWorker(true);
-    try {
-      const r = await api<{ ok: boolean; whatsappBaseUrl: string; whatsappToken: string }>('settings', {
-        method: 'PUT',
-        query: { action: 'worker' },
-        body: { whatsappBaseUrl: wUrl, whatsappToken: wToken },
-      });
-      setWUrl(r.whatsappBaseUrl ?? '');
-      setWToken(r.whatsappToken ?? '');
-      toast('Servidor de WhatsApp guardado.', 'ok');
-      invalidateSettings();
-    } catch (err) {
-      toast(
-        err instanceof Error ? err.message : 'Error al guardar el servidor de WhatsApp.',
-        'err',
-      );
-    } finally {
-      setSavingWorker(false);
-    }
-  };
-
-  const workerBase = (): string => wUrl.trim().replace(/\/+$/, '');
-  const workerToken = (): string => wToken.trim();
-  const workerHeaders = (): HeadersInit => ({
-    'Content-Type': 'application/json',
-    ...(workerToken() ? { Authorization: `Bearer ${workerToken()}` } : {}),
-  });
-
-  const checkWorker = async () => {
-    const url = workerBase();
-    if (!/^https?:\/\//.test(url)) {
-      toast('Guarda primero la URL del worker.', 'err');
-      return;
-    }
-    if (checkingWorker) return;
-    setCheckingWorker(true);
-    try {
-      const res = await fetch(`${url}/status`);
-      const data = (await res.json().catch(() => ({}))) as { connected?: boolean; phone?: string | null };
-      if (res.ok) {
-        setWorkerStatus({ connected: Boolean(data.connected), phone: data.phone ?? null });
-        toast(
-          data.connected
-            ? `Worker conectado (${data.phone ?? 'WhatsApp vinculado'}). El botón adjunta QR y envía el mensaje.`
-            : 'Worker activo, pero WhatsApp aún no está vinculado. Pulsa «Vincular WhatsApp» y escanea el QR.',
-          data.connected ? 'ok' : 'err',
-        );
-      } else {
-        toast('El worker respondió con un error. Revisa la URL.', 'err');
-      }
-    } catch {
-      toast('No se pudo conectar con el worker. Revisa la URL.', 'err');
-    } finally {
-      setCheckingWorker(false);
-    }
-  };
-
-  const linkWorker = async () => {
-    const url = workerBase();
-    if (!/^https?:\/\//.test(url)) {
-      toast('Guarda primero la URL del worker.', 'err');
-      return;
-    }
-    if (linkingWorker) return;
-    setLinkingWorker(true);
-    setWorkerQr(null);
-    try {
-      const res = await fetch(`${url}/link`, {
-        method: 'POST',
-        headers: workerHeaders(),
-      });
-      const data = (await res.json().catch(() => ({}))) as { connected?: boolean; hasQr?: boolean };
-      if (res.ok) {
-        if (data.connected) {
-          setWorkerStatus({ connected: true, phone: null });
-          toast('WhatsApp ya está vinculado.', 'ok');
-        } else if (data.hasQr) {
-          setWorkerQr(`${url}/qr.png?t=${Date.now()}`);
-          toast('Escanea el QR con tu WhatsApp: Ajustes → Dispositivos vinculados.', 'ok');
-        } else {
-          toast('El worker no generó un QR ahora. Intenta de nuevo en unos segundos.', 'err');
-        }
-      } else {
-        toast('El worker respondió con un error al vincular.', 'err');
-      }
-    } catch {
-      toast('No se pudo conectar con el worker.', 'err');
-    } finally {
-      setLinkingWorker(false);
-    }
-  };
-
-  const unlinkWorker = async () => {
-    const url = workerBase();
-    if (unlinkingWorker) return;
-    setUnlinkingWorker(true);
-    try {
-      const res = await fetch(`${url}/unlink`, {
-        method: 'POST',
-        headers: workerHeaders(),
-      });
-      if (res.ok) {
-        setWorkerStatus({ connected: false, phone: null });
-        setWorkerQr(null);
-        toast('WhatsApp desvinculado del worker.', 'ok');
-      } else {
-        toast('No se pudo desvincular.', 'err');
-      }
-    } catch {
-      toast('No se pudo conectar con el worker.', 'err');
-    } finally {
-      setUnlinkingWorker(false);
-    }
-  };
-
   const saveMessages = async (e: FormEvent) => {
     e.preventDefault();
     if (savingMsgs) return;
@@ -678,97 +548,6 @@ export default function Settings() {
               className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
             />
           </form>
-        </SectionCard>
-
-        <SectionCard title="Servidor de WhatsApp (worker)" open={openSections.has('worker')} onToggle={() => toggleSection('worker')}>
-          <p className="mt-1 text-sm text-slate-500">
-            Con esto, el botón «Pago móvil» adjunta el QR como imagen y envía el
-            mensaje automáticamente, sin abrir WhatsApp ni la PC. Si el worker no
-            responde, la app cae a wa.me (solo texto).
-          </p>
-          <form onSubmit={saveWorker} className="mt-4 space-y-3">
-            <label className="block text-sm font-medium">
-              URL del worker
-              <input
-                type="url"
-                placeholder="https://mis-cuentas-wa-worker.onrender.com"
-                value={wUrl}
-                onChange={(e) => setWUrl(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              Token (opcional)
-              <input
-                type="text"
-                placeholder="Dejalo vacío si el worker no lo exige"
-                value={wToken}
-                onChange={(e) => setWToken(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
-            <div className="flex items-center gap-2">
-              <SubmitBtn
-                busy={savingWorker}
-                busyLabel="Guardando…"
-                label="Guardar worker"
-              />
-              <button
-                type="button"
-                onClick={checkWorker}
-                disabled={checkingWorker || savingWorker}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-              >
-                {checkingWorker && <Spinner />}
-                {checkingWorker ? 'Comprobando…' : 'Comprobar estado'}
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={linkWorker}
-                disabled={linkingWorker || !workerBase()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
-              >
-                {linkingWorker && <Spinner />}
-                {linkingWorker ? 'Generando QR…' : workerStatus?.connected ? 'Re-vincular' : 'Vincular WhatsApp'}
-              </button>
-              <button
-                type="button"
-                onClick={unlinkWorker}
-                disabled={unlinkingWorker || !workerBase()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
-              >
-                {unlinkingWorker && <Spinner />}
-                {unlinkingWorker ? 'Desvinculando…' : 'Desvincular'}
-              </button>
-            </div>
-
-            {workerStatus?.connected && (
-              <p className="text-sm text-emerald-700">
-                WhatsApp conectado{workerStatus.phone ? ` (${workerStatus.phone})` : ''}.
-              </p>
-            )}
-            {workerQr && (
-              <div className="rounded-lg border border-slate-200 p-3 text-center">
-                <img
-                  src={workerQr}
-                  alt="QR para vincular WhatsApp"
-                  className="mx-auto h-48 w-48"
-                />
-                <p className="mt-2 text-xs text-slate-500">
-                  Escanéalo con WhatsApp: Ajustes → Dispositivos vinculados → Vincular dispositivo.
-                </p>
-              </div>
-            )}
-          </form>
-          <p className="mt-3 text-xs text-slate-400">
-            Primera vez: crea tu servicio gratis en Render con el archivo
-            «render.yaml» del repo, define WA_SECRET, SUPABASE_URL y
-            SUPABASE_SERVICE_ROLE_KEY, y vincula WhatsApp escaneando el QR que
-            genera el worker. La sesión se respalda en Supabase Storage.
-          </p>
         </SectionCard>
 
         <SectionCard title="Mensajes de WhatsApp" open={openSections.has('messages')} onToggle={() => toggleSection('messages')}>

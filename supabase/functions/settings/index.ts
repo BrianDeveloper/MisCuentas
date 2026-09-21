@@ -48,8 +48,6 @@ Deno.serve(async (req: Request) => {
       const qrFile = await getSetting('pagoMovilQrFile');
       const baseUrl = STORAGE_PUBLIC_BASE();
       const hasQr = Boolean(qrFile);
-      const whatsappBaseUrl = (await getSetting('whatsappBaseUrl')) ?? '';
-      const whatsappToken = (await getSetting('whatsappToken')) ?? '';
 
       return json({
         pago: {
@@ -61,12 +59,8 @@ Deno.serve(async (req: Request) => {
           hasQr,
           qrFile: qrFile ?? '',
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
-          whatsappBaseUrl,
-          whatsappToken,
         },
         qrBase: baseUrl,
-        whatsappBaseUrl,
-        whatsappToken,
         msgReminder: (await getSetting('msgReminder')) ?? '',
         msgPago: (await getSetting('msgPago')) ?? '',
       });
@@ -84,21 +78,6 @@ Deno.serve(async (req: Request) => {
           ok: true,
           msgReminder: (await getSetting('msgReminder')) ?? '',
           msgPago: (await getSetting('msgPago')) ?? '',
-        });
-      }
-
-      if (action === 'worker') {
-        const whatsappBaseUrl = String(body.whatsappBaseUrl ?? '').trim()
-          .replace(/\/+$/, '');
-        const whatsappToken = String(body.whatsappToken ?? '').trim();
-        if (whatsappBaseUrl) await setSetting('whatsappBaseUrl', whatsappBaseUrl);
-        if (whatsappToken) await setSetting('whatsappToken', whatsappToken);
-        return json({
-          ok: true,
-          whatsappBaseUrl:
-            (await getSetting('whatsappBaseUrl')) ?? '',
-          whatsappToken:
-            (await getSetting('whatsappToken')) ?? '',
         });
       }
 
