@@ -38,6 +38,10 @@ export default function Settings() {
   const [checkingWorker, setCheckingWorker] = useState(false);
   const [wMsg, setWMsg] = useState('');
   const [wMsgType, setWMsgType] = useState<'ok' | 'err'>('ok');
+  const [workerStatus, setWorkerStatus] = useState<{ connected: boolean; phone: string | null } | null>(null);
+  const [workerQr, setWorkerQr] = useState<string | null>(null);
+  const [linkingWorker, setLinkingWorker] = useState(false);
+  const [unlinkingWorker, setUnlinkingWorker] = useState(false);
 
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
     setter(text);
@@ -268,8 +272,15 @@ export default function Settings() {
     }
   };
 
+  const workerBase = (): string => wUrl.trim().replace(/\/+$/, '');
+  const workerToken = (): string => wToken.trim();
+  const workerHeaders = (): HeadersInit => ({
+    'Content-Type': 'application/json',
+    ...(workerToken() ? { Authorization: `Bearer ${workerToken()}` } : {}),
+  });
+
   const checkWorker = async () => {
-    const url = wUrl.trim().replace(/\/+$/, '');
+    const url = workerBase();
     if (!/^https?:\/\//.test(url)) {
       notify('Guarda primero la URL del worker.', 'err', setWMsg, setWMsgType);
       return;
@@ -280,10 +291,11 @@ export default function Settings() {
       const res = await fetch(`${url}/status`);
       const data = (await res.json().catch(() => ({}))) as { connected?: boolean; phone?: string | null };
       if (res.ok) {
+        setWorkerStatus({ connected: Boolean(data.connected), phone: data.phone ?? null });
         notify(
           data.connected
             ? `Worker conectado (${data.phone ?? 'WhatsApp vinculado'}). El botón adjunta QR y envía el mensaje.`
-            : 'Worker activo, pero WhatsApp aún no está vinculado. Vincula escaneando el QR del worker.',
+            : 'Worker activo, pero WhatsApp aún no está vinculado. Pulsa «Vincular WhatsApp» y escanea el QR.',
           data.connected ? 'ok' : 'err',
           setWMsg,
           setWMsgType,
@@ -295,6 +307,64 @@ export default function Settings() {
       notify('No se pudo conectar con el worker. Revisa la URL.', 'err', setWMsg, setWMsgType);
     } finally {
       setCheckingWorker(false);
+    }
+  };
+
+  const linkWorker = async () => {
+    const url = workerBase();
+    if (!/^https?:\/\//.test(url)) {
+      notify('Guarda primero la URL del worker.', 'err', setWMsg, setWMsgType);
+      return;
+    }
+    setLinkingWorker(true);
+    setWMsg('');
+    setWorkerQr(null);
+    try {
+      const res = await fetch(`${url}/link`, {
+        method: 'POST',
+        headers: workerHeaders(),
+      });
+      const data = (await res.json().catch(() => ({}))) as { connected?: boolean; hasQr?: boolean };
+      if (res.ok) {
+        if (data.connected) {
+          setWorkerStatus({ connected: true, phone: null });
+          notify('WhatsApp ya está vinculado.', 'ok', setWMsg, setWMsgType);
+        } else if (data.hasQr) {
+          setWorkerQr(`${url}/qr.png?t=${Date.now()}`);
+          notify('Escanea el QR con tu WhatsApp: Ajustes → Dispositivos vinculados.', 'ok', setWMsg, setWMsgType);
+        } else {
+          notify('El worker no generó un QR ahora. Intenta de nuevo en unos segundos.', 'err', setWMsg, setWMsgType);
+        }
+      } else {
+        notify('El worker respondió con un error al vincular.', 'err', setWMsg, setWMsgType);
+      }
+    } catch {
+      notify('No se pudo conectar con el worker.', 'err', setWMsg, setWMsgType);
+    } finally {
+      setLinkingWorker(false);
+    }
+  };
+
+  const unlinkWorker = async () => {
+    const url = workerBase();
+    setUnlinkingWorker(true);
+    setWMsg('');
+    try {
+      const res = await fetch(`${url}/unlink`, {
+        method: 'POST',
+        headers: workerHeaders(),
+      });
+      if (res.ok) {
+        setWorkerStatus({ connected: false, phone: null });
+        setWorkerQr(null);
+        notify('WhatsApp desvinculado del worker.', 'ok', setWMsg, setWMsgType);
+      } else {
+        notify('No se pudo desvincular.', 'err', setWMsg, setWMsgType);
+      }
+    } catch {
+      notify('No se pudo conectar con el worker.', 'err', setWMsg, setWMsgType);
+    } finally {
+      setUnlinkingWorker(false);
     }
   };
 
@@ -566,6 +636,43 @@ export default function Settings() {
                 {checkingWorker ? 'Comprobando…' : 'Comprobar estado'}
               </button>
             </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={linkWorker}
+                disabled={linkingWorker || !workerBase()}
+                className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                {linkingWorker ? 'Generando QR…' : workerStatus?.connected ? 'Re-vincular' : 'Vincular WhatsApp'}
+              </button>
+              <button
+                type="button"
+                onClick={unlinkWorker}
+                disabled={unlinkingWorker || !workerBase()}
+                className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                {unlinkingWorker ? 'Desvinculando…' : 'Desvincular'}
+              </button>
+            </div>
+
+            {workerStatus?.connected && (
+              <p className="text-sm text-emerald-700">
+                WhatsApp conectado{workerStatus.phone ? ` (${workerStatus.phone})` : ''}.
+              </p>
+            )}
+            {workerQr && (
+              <div className="rounded-lg border border-slate-200 p-3 text-center">
+                <img
+                  src={workerQr}
+                  alt="QR para vincular WhatsApp"
+                  className="mx-auto h-48 w-48"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Escanéalo con WhatsApp: Ajustes → Dispositivos vinculados → Vincular dispositivo.
+                </p>
+              </div>
+            )}
             {wMsg && (
               <p
                 className={`text-sm ${
