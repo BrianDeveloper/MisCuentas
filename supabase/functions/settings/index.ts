@@ -48,6 +48,8 @@ Deno.serve(async (req: Request) => {
       const qrFile = await getSetting('pagoMovilQrFile');
       const baseUrl = STORAGE_PUBLIC_BASE();
       const hasQr = Boolean(qrFile);
+      const whatsappBaseUrl = (await getSetting('whatsappBaseUrl')) ?? '';
+      const whatsappToken = (await getSetting('whatsappToken')) ?? '';
 
       return json({
         pago: {
@@ -59,10 +61,12 @@ Deno.serve(async (req: Request) => {
           hasQr,
           qrFile: qrFile ?? '',
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
+          whatsappBaseUrl,
+          whatsappToken,
         },
         qrBase: baseUrl,
-        whatsappBaseUrl: (await getSetting('whatsappBaseUrl')) ?? '',
-        whatsappToken: (await getSetting('whatsappToken')) ?? '',
+        whatsappBaseUrl,
+        whatsappToken,
       });
     }
 

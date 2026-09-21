@@ -47,8 +47,8 @@ export default function PagoMovilButton({
   const text = buildPagoMovilMessage({ balanceBs, usdHoy, pago, qrUrl });
   const waHref = buildWhatsAppUrl(number, text);
 
-  const workerBase = (pago.whatsappBaseUrl ?? '').trim();
-  const workerToken = (pago.whatsappToken ?? '').trim();
+  const workerBase = (settings?.whatsappBaseUrl ?? '').trim();
+  const workerToken = (settings?.whatsappToken ?? '').trim();
   const workerEnabled = Boolean(workerBase);
 
   const sendPago = async (e: MouseEvent<HTMLAnchorElement>) => {
