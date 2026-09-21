@@ -32,6 +32,13 @@ export default function Settings() {
   const [pagoMsg, setPagoMsg] = useState('');
   const [pagoMsgType, setPagoMsgType] = useState<'ok' | 'err'>('ok');
 
+  const [wUrl, setWUrl] = useState('');
+  const [wToken, setWToken] = useState('');
+  const [savingWorker, setSavingWorker] = useState(false);
+  const [checkingWorker, setCheckingWorker] = useState(false);
+  const [wMsg, setWMsg] = useState('');
+  const [wMsgType, setWMsgType] = useState<'ok' | 'err'>('ok');
+
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
     setter(text);
     msetter(type);
@@ -41,10 +48,12 @@ export default function Settings() {
     const [r, h, p] = await Promise.all([
       api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
       api<{ history: Rate[] }>('rates', { query: { action: 'history', limit: 15 } }),
-      api<{ pago: PagoMovilConfig | null }>('settings'),
+      api<{ pago: PagoMovilConfig | null; whatsappBaseUrl: string; whatsappToken: string }>('settings'),
     ]);
     setRate(r.rate);
     setHistory(h.history);
+    setWUrl(p.whatsappBaseUrl ?? '');
+    setWToken(p.whatsappToken ?? '');
     if (p.pago) {
       setPago(p.pago);
       setPBanco(p.pago.banco);
@@ -226,6 +235,66 @@ export default function Settings() {
     } catch (err) {
       setPagoMsg(err instanceof Error ? err.message : 'Error al quitar el QR.');
       setPagoMsgType('err');
+    }
+  };
+
+  const saveWorker = async (e: FormEvent) => {
+    e.preventDefault();
+    setWMsg('');
+    setSavingWorker(true);
+    try {
+      const r = await api<{ ok: boolean; whatsappBaseUrl: string; whatsappToken: string }>('settings', {
+        method: 'PUT',
+        query: { action: 'worker' },
+        body: { whatsappBaseUrl: wUrl, whatsappToken: wToken },
+      });
+      setWUrl(r.whatsappBaseUrl ?? '');
+      setWToken(r.whatsappToken ?? '');
+      notify(
+        'Servidor de WhatsApp guardado.',
+        'ok',
+        setWMsg,
+        setWMsgType,
+      );
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : 'Error al guardar el servidor de WhatsApp.',
+        'err',
+        setWMsg,
+        setWMsgType,
+      );
+    } finally {
+      setSavingWorker(false);
+    }
+  };
+
+  const checkWorker = async () => {
+    const url = wUrl.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//.test(url)) {
+      notify('Guarda primero la URL del worker.', 'err', setWMsg, setWMsgType);
+      return;
+    }
+    setCheckingWorker(true);
+    setWMsg('');
+    try {
+      const res = await fetch(`${url}/status`);
+      const data = (await res.json().catch(() => ({}))) as { connected?: boolean; phone?: string | null };
+      if (res.ok) {
+        notify(
+          data.connected
+            ? `Worker conectado (${data.phone ?? 'WhatsApp vinculado'}). El botón adjunta QR y envía el mensaje.`
+            : 'Worker activo, pero WhatsApp aún no está vinculado. Vincula escaneando el QR del worker.',
+          data.connected ? 'ok' : 'err',
+          setWMsg,
+          setWMsgType,
+        );
+      } else {
+        notify('El worker respondió con un error. Revisa la URL.', 'err', setWMsg, setWMsgType);
+      }
+    } catch {
+      notify('No se pudo conectar con el worker. Revisa la URL.', 'err', setWMsg, setWMsgType);
+    } finally {
+      setCheckingWorker(false);
     }
   };
 
@@ -450,6 +519,69 @@ export default function Settings() {
               </p>
             )}
           </form>
+        </section>
+
+        <section className="rounded-xl bg-white p-5 shadow">
+          <h2 className="text-lg font-bold text-slate-800">Servidor de WhatsApp (worker)</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Con esto, el botón «Pago móvil» adjunta el QR como imagen y envía el
+            mensaje automáticamente, sin abrir WhatsApp ni la PC. Si el worker no
+            responde, la app cae a wa.me (solo texto).
+          </p>
+          <form onSubmit={saveWorker} className="mt-4 space-y-3">
+            <label className="block text-sm font-medium">
+              URL del worker
+              <input
+                type="url"
+                placeholder="https://mis-cuentas-wa-worker.onrender.com"
+                value={wUrl}
+                onChange={(e) => setWUrl(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              Token (opcional)
+              <input
+                type="text"
+                placeholder="Dejalo vacío si el worker no lo exige"
+                value={wToken}
+                onChange={(e) => setWToken(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={savingWorker}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {savingWorker ? 'Guardando…' : 'Guardar worker'}
+              </button>
+              <button
+                type="button"
+                onClick={checkWorker}
+                disabled={checkingWorker || savingWorker}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              >
+                {checkingWorker ? 'Comprobando…' : 'Comprobar estado'}
+              </button>
+            </div>
+            {wMsg && (
+              <p
+                className={`text-sm ${
+                  wMsgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
+                }`}
+              >
+                {wMsg}
+              </p>
+            )}
+          </form>
+          <p className="mt-3 text-xs text-slate-400">
+            Primera vez: crea tu servicio gratis en Render con el archivo
+            «render.yaml» del repo, define WA_SECRET, SUPABASE_URL y
+            SUPABASE_SERVICE_ROLE_KEY, y vincula WhatsApp escaneando el QR que
+            genera el worker. La sesión se respalda en Supabase Storage.
+          </p>
         </section>
 
         <section className="rounded-xl bg-white p-5 shadow">

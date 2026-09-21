@@ -61,11 +61,29 @@ Deno.serve(async (req: Request) => {
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
         },
         qrBase: baseUrl,
+        whatsappBaseUrl: (await getSetting('whatsappBaseUrl')) ?? '',
+        whatsappToken: (await getSetting('whatsappToken')) ?? '',
       });
     }
 
     if (req.method === 'PUT') {
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+      if (action === 'worker') {
+        const whatsappBaseUrl = String(body.whatsappBaseUrl ?? '').trim()
+          .replace(/\/+$/, '');
+        const whatsappToken = String(body.whatsappToken ?? '').trim();
+        if (whatsappBaseUrl) await setSetting('whatsappBaseUrl', whatsappBaseUrl);
+        if (whatsappToken) await setSetting('whatsappToken', whatsappToken);
+        return json({
+          ok: true,
+          whatsappBaseUrl:
+            (await getSetting('whatsappBaseUrl')) ?? '',
+          whatsappToken:
+            (await getSetting('whatsappToken')) ?? '',
+        });
+      }
+
       if (action !== 'update') return json({ error: 'Acción inválida' }, 400);
 
       const banco = String(body.banco ?? '').trim();

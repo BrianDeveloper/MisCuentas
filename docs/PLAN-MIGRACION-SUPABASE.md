@@ -85,12 +85,14 @@ app Android híbrida con Capacitor.)
 - pg_cron: `30 8 * * *` -> `select net.http_post(...)` al Edge `bcv-refresh` (o equivalente).
 
 ### Fase D — Worker WhatsApp (Node + Baileys)
-> **Descartado (2026-09):** el usuario eligió la solución wa.me (abrir WhatsApp con el mensaje y QR precargados), sin worker ni PC encendida. El código quedó en el historial de git; la app ya no hace referencia a worker.
+> **Reactivada (2026-09) en Render Free:** el usuario rechazó wa.me (no adjunta el QR como archivo) y pidió gratis + automático + sin tarjeta + sin PC encendida.
+> El worker volvió a `worker/` (reescrito, no el del historial), se despliega gratis en **Render** vía `render.yaml`, mantiene la sesión de **Baileys respaldada en Supabase Storage** (bucket `wa`, disco efímero de Render) y un keepalive de GitHub Actions (`keepalive.yml`, ping cada 10 min) lo mantiene despierto dentro de las 744 h/mes del plan free (límite 750 h). La UI (Ajustes → Servidor de WhatsApp) guarda `whatsappBaseUrl`/`whatsappToken` en `app_settings`; `PagoMovilButton` envía por el worker y cae a wa.me si no responde.
+> Riesgos honestos: Render free es "no producción"; un reinicio inoportuno entre respaldos (ventana de 5 min) obligaría a re-escanear el QR; margen de horas mensual ajustado (~6 h).
 1. Extraer de `server/src/whatsapp.ts` + `routes/whatsapp.ts` un servicio mínimo: `worker/` con rutas `/status`, `/link` (QR), `/qr.png`, `/send` (acepta `{to, text, imageUrl}` y adjunta descargando la imagen desde Storage).
-2. Su estado y credenciales de sesión viven en su propio filesystem (`worker/data/wa`), **nunca en el repo** (`.gitignore`).
-3. Endpoint público estable y HTTPS: **Tailscale Funnel** (gratis, Personal, sin tarjeta) → `https://<maquina>.<tailnet>.ts.net` → localhost:3100 (worker). Requiere PC encendida (igual que hoy).
-4. CORS: permitir el origen `https://<user>.github.io`.
-- **Alternativa contratada:** botón "Pago móvil" siempre abre `wa.me` con mensaje + QR; sin costo y sin infraestructura.
+2. Su estado y credenciales de sesión viven en su propio filesystem (`worker/data/wa`), **nunca en el repo** (`.gitignore`). En Render ese disco es efímero → `src/storage.ts` respalda la sesión en Supabase Storage (zip versionado por timestamp, conserva 3) y la restaura al arrancar.
+3. Endpoint público estable y HTTPS: **Render free** → `https://<nombre>.onrender.com` → puerto de Render (`PORT`). Sin PC encendida.
+4. CORS: `Access-Control-Allow-Origin: *` (GitHub Pages).
+- **Alternativa contratada:** botón "Pago móvil" cae a `wa.me` con mensaje + línea del QR solo si el worker no está disponible.
 
 ### Fase E — Deploy GitHub Pages
 - Repo en GitHub. **Importante:** Pages en plan free solo publica repos **públicos**; con repo privado se necesita GitHub Pro. El código del cliente es público (datos reales quedan en Supabase detrás de auth). Alternativa si se quiere repo privado: Netlify Drop/Deploy (free, estático).
