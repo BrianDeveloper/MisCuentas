@@ -5,10 +5,9 @@ import {
   buildWhatsAppUrl,
   toWhatsAppNumber,
 } from '../lib/whatsapp';
+import { sendViaWorker, warmWorker } from '../lib/worker';
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
-
-const SEND_TIMEOUT_MS = 90_000;
 
 export default function PagoMovilButton({
   phone,
@@ -31,9 +30,7 @@ export default function PagoMovilButton({
       if (!alive) return;
       setSettings(s);
       const base = s?.whatsappBaseUrl?.trim().replace(/\/+$/, '') ?? '';
-      if (base) {
-        fetch(`${base}/status`, { method: 'GET', signal: AbortSignal.timeout(15000) }).catch(() => {});
-      }
+      if (base) warmWorker(base);
     });
     return () => {
       alive = false;
@@ -54,57 +51,31 @@ export default function PagoMovilButton({
   const workerToken = (pago.whatsappToken ?? '').trim();
   const workerEnabled = Boolean(workerBase);
 
-  const sendViaWorker = async (e: MouseEvent<HTMLAnchorElement>) => {
+  const sendPago = async (e: MouseEvent<HTMLAnchorElement>) => {
     if (!workerEnabled) return;
     e.preventDefault();
     if (send === 'sending') return;
     setSend('sending');
     setReason('');
-
-    const attempt = async (): Promise<void> => {
-      const res = await fetch(`${workerBase}/send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(workerToken ? { Authorization: `Bearer ${workerToken}` } : {}),
-        },
-        body: JSON.stringify({ to: number, text, imageUrl: qrUrl ?? '' }),
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      });
-      if (!res.ok) {
-        const message = await res
-          .text()
-          .then((t) => {
-            try {
-              return String((JSON.parse(t) as { error?: unknown }).error ?? '');
-            } catch {
-              return '';
-            }
-          })
-          .catch(() => '');
-        throw new Error(message || `Fallo del worker (${res.status}).`);
-      }
-    };
-
     try {
-      await attempt();
+      await sendViaWorker({
+        base: workerBase,
+        token: workerToken,
+        to: number,
+        text,
+        imageUrl: qrUrl ?? '',
+      });
       setSend('sent');
       setTimeout(() => setSend('idle'), 2500);
     } catch (err) {
-      try {
-        await attempt();
-        setSend('sent');
-        setTimeout(() => setSend('idle'), 2500);
-      } catch (err2) {
-        const msg = err2 instanceof Error ? err2.message : 'Fallo del worker.';
-        setSend('error');
-        setReason(msg);
-        setTimeout(() => {
-          setSend('idle');
-          setReason('');
-        }, 4000);
-        window.open(waHref, '_blank', 'noopener,noreferrer');
-      }
+      const msg = err instanceof Error ? err.message : 'Fallo del worker.';
+      setSend('error');
+      setReason(msg);
+      setTimeout(() => {
+        setSend('idle');
+        setReason('');
+      }, 4000);
+      window.open(waHref, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -122,7 +93,7 @@ export default function PagoMovilButton({
       href={waHref}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={sendViaWorker}
+      onClick={sendPago}
       aria-label={`Enviar datos de pago móvil por WhatsApp a ${name}`}
       title={reason || undefined}
       className="flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-600 bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700"
