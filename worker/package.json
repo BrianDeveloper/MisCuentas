@@ -1,0 +1,23 @@
+{
+  "name": "worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node --env-file-if-exists=.env --no-warnings dist/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.24",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

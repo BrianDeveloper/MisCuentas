@@ -87,7 +87,7 @@ app Android híbrida con Capacitor.)
 ### Fase D — Worker WhatsApp (Node + Baileys)
 1. Extraer de `server/src/whatsapp.ts` + `routes/whatsapp.ts` un servicio mínimo: `worker/` con rutas `/status`, `/link` (QR), `/qr.png`, `/send` (acepta `{to, text, imageUrl}` y adjunta descargando la imagen desde Storage).
 2. Su estado y credenciales de sesión viven en su propio filesystem (`worker/data/wa`), **nunca en el repo** (`.gitignore`).
-3. Endpoint público estable y HTTPS: **Tailscale Funnel** (gratis, Personal, sin tarjeta) → `https://<maquina>.<tailnet>.ts.net` → localhost:3001. Requiere PC encendida (igual que hoy).
+3. Endpoint público estable y HTTPS: **Tailscale Funnel** (gratis, Personal, sin tarjeta) → `https://<maquina>.<tailnet>.ts.net` → localhost:3100 (worker). Requiere PC encendida (igual que hoy).
 4. CORS: permitir el origen `https://<user>.github.io`.
 
 ### Fase E — Deploy GitHub Pages

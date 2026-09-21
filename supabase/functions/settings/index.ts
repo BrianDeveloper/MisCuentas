@@ -60,6 +60,7 @@ Deno.serve(async (req: Request) => {
           qrFile: qrFile ?? '',
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
           whatsappBaseUrl: (await getSetting('whatsappBaseUrl')) ?? '',
+          whatsappToken: (await getSetting('whatsappToken')) ?? '',
         },
         qrBase: baseUrl,
       });
@@ -87,6 +88,8 @@ Deno.serve(async (req: Request) => {
       }
       await setSetting('whatsappBaseUrl', whatsappBaseUrl);
 
+      await setSetting('whatsappToken', String(body.whatsappToken ?? '').trim());
+
       const qrFile = await getSetting('pagoMovilQrFile');
       const baseUrl = STORAGE_PUBLIC_BASE();
       const hasQr = Boolean(qrFile);
@@ -103,6 +106,7 @@ Deno.serve(async (req: Request) => {
           qrFile: qrFile ?? '',
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
           whatsappBaseUrl,
+          whatsappToken: String(body.whatsappToken ?? '').trim(),
         },
         qrBase: baseUrl,
       });

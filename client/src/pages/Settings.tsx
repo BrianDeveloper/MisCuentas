@@ -27,6 +27,7 @@ export default function Settings() {
   const [pDocumento, setPDocumento] = useState('');
   const [pTelefono, setPTelefono] = useState('');
   const [pWorkerUrl, setPWorkerUrl] = useState('');
+  const [pWorkerToken, setPWorkerToken] = useState('');
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
   const [savingPago, setSavingPago] = useState(false);
@@ -35,6 +36,9 @@ export default function Settings() {
 
   const [wa, setWa] = useState<{ connected: boolean; phone: string | null } | null>(null);
   const [checkingWa, setCheckingWa] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
+  const [qrPng, setQrPng] = useState<string | null>(null);
   const [waMsg, setWaMsg] = useState('');
 
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
@@ -57,6 +61,7 @@ export default function Settings() {
       setPDocumento(p.pago.documento);
       setPTelefono(p.pago.telefono);
       setPWorkerUrl(p.pago.whatsappBaseUrl);
+      setPWorkerToken(p.pago.whatsappToken ?? '');
     }
   };
 
@@ -81,6 +86,87 @@ export default function Settings() {
       setWaMsg('No se pudo contactar el worker.');
     } finally {
       setCheckingWa(false);
+    }
+  };
+
+  const waHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = pWorkerToken.trim();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  };
+
+  const pollStatus = (base: string) =>
+    new Promise<{ connected: boolean; phone: string | null }>((resolve) => {
+      const started = Date.now();
+      const timer = window.setInterval(async () => {
+        try {
+          const res = await fetch(`${base}/status`);
+          const data = (await res.json().catch(() => ({}))) as {
+            connected?: boolean;
+            phone?: string | null;
+          };
+          if (data.connected || Date.now() - started > 60000) {
+            window.clearInterval(timer);
+            resolve({ connected: Boolean(data.connected), phone: data.phone ?? null });
+            return;
+          }
+        } catch {
+          // se reintenta en la siguiente iteración
+        }
+        if (Date.now() - started > 60000) {
+          window.clearInterval(timer);
+          resolve({ connected: false, phone: null });
+        }
+      }, 2000);
+    });
+
+  const linkWorker = async () => {
+    setLinking(true);
+    setWa(null);
+    setQrPng(null);
+    setWaMsg('');
+    try {
+      const base = pWorkerUrl.trim().replace(/\/+$/, '');
+      const res = await fetch(`${base}/link`, { method: 'POST', headers: waHeaders() });
+      const data = (await res.json().catch(() => ({}))) as {
+        connected?: boolean;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar la vinculación.');
+      if (data.connected) {
+        setWa(await pollStatus(base));
+        return;
+      }
+      setQrPng(`${base}/qr.png?ts=${Date.now()}`);
+      setWaMsg(
+        'Escanea el QR con tu teléfono: WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo.',
+      );
+      const st = await pollStatus(base);
+      setWa(st);
+      if (st.connected) setQrPng(null);
+    } catch (err) {
+      setWaMsg(err instanceof Error ? err.message : 'Error al vincular.');
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const unlinkWorker = async () => {
+    setUnlinking(true);
+    setWaMsg('');
+    try {
+      const base = pWorkerUrl.trim().replace(/\/+$/, '');
+      const res = await fetch(`${base}/unlink`, { method: 'POST', headers: waHeaders() });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || 'No se pudo desvincular.');
+      setWa({ connected: false, phone: null });
+      setQrPng(null);
+      setWaMsg('WhatsApp desvinculado.');
+    } catch (err) {
+      setWaMsg(err instanceof Error ? err.message : 'Error al desvincular.');
+    } finally {
+      setUnlinking(false);
     }
   };
 
@@ -206,6 +292,7 @@ export default function Settings() {
           documento: pDocumento,
           telefono: pTelefono,
           whatsappBaseUrl: pWorkerUrl.trim(),
+          whatsappToken: pWorkerToken.trim(),
         },
       });
       let pagoUpdated = r.pago;
@@ -438,6 +525,22 @@ export default function Settings() {
               </span>
             </label>
 
+            <label className="block text-sm font-medium">
+              Token del worker (opcional)
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="Opcional. Solo si el worker está protegido con WA_SECRET."
+                value={pWorkerToken}
+                onChange={(e) => setPWorkerToken(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+              <span className="mt-1 block text-xs text-slate-400">
+                Requerido si configuraste <code>WA_SECRET</code> en el worker.
+                Este token viaja cifrado por HTTPS y protege /send y /unlink.
+              </span>
+            </label>
+
             <div className="rounded-lg border border-slate-200 p-3">
               <span className="text-sm font-medium text-slate-700">
                 QR de pago
@@ -514,18 +617,40 @@ export default function Settings() {
               pago móvil para habilitar el envío automático.
             </p>
           ) : (
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={checkWorker}
-                disabled={checkingWa}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-              >
-                {checkingWa ? 'Comprobando…' : 'Comprobar conexión'}
-              </button>
+            <div className="mt-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={checkWorker}
+                  disabled={checkingWa}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {checkingWa ? 'Comprobando…' : 'Comprobar conexión'}
+                </button>
+                {!wa?.connected && (
+                  <button
+                    type="button"
+                    onClick={linkWorker}
+                    disabled={linking}
+                    className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    {linking ? 'Vinculando…' : 'Vincular WhatsApp'}
+                  </button>
+                )}
+                {wa?.connected && (
+                  <button
+                    type="button"
+                    onClick={unlinkWorker}
+                    disabled={unlinking}
+                    className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {unlinking ? 'Desvinculando…' : 'Desvincular'}
+                  </button>
+                )}
+              </div>
               {wa && (
                 <p
-                  className={`mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
                     wa.connected
                       ? 'bg-emerald-50 text-emerald-700'
                       : 'bg-amber-50 text-amber-700'
@@ -536,8 +661,22 @@ export default function Settings() {
                     : 'No conectado'}
                 </p>
               )}
-              {waMsg && <p className="mt-2 text-sm text-amber-700">{waMsg}</p>}
-              <p className="mt-3 text-xs text-slate-400">
+              {qrPng && (
+                <div>
+                  <p className="text-sm font-medium text-slate-700">
+                    Escanea este QR para vincular tu WhatsApp:
+                  </p>
+                  <img
+                    src={qrPng}
+                    alt="QR de vinculación de WhatsApp"
+                    className="mt-2 h-56 w-56 rounded-lg border border-slate-200 object-contain"
+                  />
+                </div>
+              )}
+              {waMsg && (
+                <p className="text-sm text-slate-600">{waMsg}</p>
+              )}
+              <p className="text-xs text-slate-400">
                 El worker se vincula por separado (sesión adicional de tu
                 WhatsApp). Con esta URL activa, el botón &quot;Pago móvil&quot;
                 envía directamente en lugar de abrir wa.me.

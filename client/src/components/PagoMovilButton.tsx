@@ -45,9 +45,11 @@ export default function PagoMovilButton({
     try {
       const caption = buildPagoMovilMessage({ balanceBs, usdHoy, pago, qrUrl: null });
       const base = pago.whatsappBaseUrl.replace(/\/+$/, '');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (pago.whatsappToken) headers.Authorization = `Bearer ${pago.whatsappToken}`;
       const res = await fetch(`${base}/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           to: number,
           text: caption,
