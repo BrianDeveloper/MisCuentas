@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import Layout from '../components/Layout';
 import { api, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
@@ -8,6 +8,61 @@ import {
   DEFAULT_PAGO_TEMPLATE,
   type PagoMovilConfig,
 } from '../lib/whatsapp';
+
+type SectionId = 'rate' | 'pago' | 'worker' | 'messages' | 'pin';
+const SECTION_ORDER: SectionId[] = ['rate', 'pago', 'worker', 'messages', 'pin'];
+const OPEN_KEY = 'mc_settings_open';
+
+function loadOpenSections(): Set<SectionId> {
+  try {
+    const raw = localStorage.getItem(OPEN_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw) as SectionId[];
+      const valid = arr.filter((id): id is SectionId =>
+        (SECTION_ORDER as string[]).includes(id),
+      );
+      if (valid.length > 0) return new Set(valid);
+    }
+  } catch { /* estado por defecto */ }
+  return new Set([SECTION_ORDER[0]]);
+}
+
+function SectionCard({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-xl bg-white p-5 shadow">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+          aria-hidden="true"
+        >
+          <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
+        </svg>
+      </button>
+      {open && <div className="mt-4">{children}</div>}
+    </section>
+  );
+}
 
 export default function Settings() {
   const [rate, setRate] = useState<Rate | null>(null);
@@ -54,6 +109,20 @@ export default function Settings() {
   const [msgsMsg, setMsgsMsg] = useState('');
   const [msgsMsgType, setMsgsMsgType] = useState<'ok' | 'err'>('ok');
 
+  const [openSections, setOpenSections] = useState<Set<SectionId>>(loadOpenSections);
+
+  const toggleSection = (id: SectionId) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(OPEN_KEY, JSON.stringify([...next]));
+      } catch { /* noop */ }
+      return next;
+    });
+  };
+
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
     setter(text);
     msetter(type);
@@ -69,8 +138,8 @@ export default function Settings() {
     setHistory(h.history);
     setWUrl(p.whatsappBaseUrl ?? '');
     setWToken(p.whatsappToken ?? '');
-    setMReminder(p.msgReminder ?? '');
-    setMPago(p.msgPago ?? '');
+    setMReminder(p.msgReminder?.trim() ? p.msgReminder : DEFAULT_BALANCE_TEMPLATE);
+    setMPago(p.msgPago?.trim() ? p.msgPago : DEFAULT_PAGO_TEMPLATE);
     if (p.pago) {
       setPago(p.pago);
       setPBanco(p.pago.banco);
@@ -422,8 +491,7 @@ export default function Settings() {
       <h1 className="text-2xl font-bold text-slate-800">Ajustes</h1>
 
       <div className="mt-5 grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl bg-white p-5 shadow">
-          <h2 className="text-lg font-bold text-slate-800">Tasa BCV</h2>
+        <SectionCard title="Tasa BCV" open={openSections.has('rate')} onToggle={() => toggleSection('rate')}>
           {rate ? (
             <div className="mt-3 rounded-lg bg-slate-900 p-4 text-white">
               <p className="text-3xl font-bold">
@@ -521,10 +589,9 @@ export default function Settings() {
               </ul>
             </div>
           )}
-        </section>
+        </SectionCard>
 
-        <section className="rounded-xl bg-white p-5 shadow">
-          <h2 className="text-lg font-bold text-slate-800">Pago móvil (WhatsApp)</h2>
+        <SectionCard title="Pago móvil (WhatsApp)" open={openSections.has('pago')} onToggle={() => toggleSection('pago')}>
           <p className="mt-1 text-sm text-slate-500">
             Estos datos se incluyen en el mensaje de WhatsApp que envías a tus
             clientes para cobrar.
@@ -638,10 +705,9 @@ export default function Settings() {
               </p>
             )}
           </form>
-        </section>
+        </SectionCard>
 
-        <section className="rounded-xl bg-white p-5 shadow">
-          <h2 className="text-lg font-bold text-slate-800">Servidor de WhatsApp (worker)</h2>
+        <SectionCard title="Servidor de WhatsApp (worker)" open={openSections.has('worker')} onToggle={() => toggleSection('worker')}>
           <p className="mt-1 text-sm text-slate-500">
             Con esto, el botón «Pago móvil» adjunta el QR como imagen y envía el
             mensaje automáticamente, sin abrir WhatsApp ni la PC. Si el worker no
@@ -738,13 +804,13 @@ export default function Settings() {
             SUPABASE_SERVICE_ROLE_KEY, y vincula WhatsApp escaneando el QR que
             genera el worker. La sesión se respalda en Supabase Storage.
           </p>
-        </section>
+        </SectionCard>
 
-        <section className="rounded-xl bg-white p-5 shadow">
-          <h2 className="text-lg font-bold text-slate-800">Mensajes de WhatsApp</h2>
+        <SectionCard title="Mensajes de WhatsApp" open={openSections.has('messages')} onToggle={() => toggleSection('messages')}>
           <p className="mt-1 text-sm text-slate-500">
-            Edita el texto de los mensajes que se envían a tus clientes. Déjalos
-            vacíos para usar la plantilla por defecto.
+            Edita el texto de los mensajes que se envían a tus clientes. Al
+            guardar se aplican al instante; si borras todo el texto y guardas,
+            se restaura la plantilla por defecto.
           </p>
           <form onSubmit={saveMessages} className="mt-4 space-y-4">
             <label className="block text-sm font-medium">
@@ -753,7 +819,6 @@ export default function Settings() {
                 rows={6}
                 value={mReminder}
                 onChange={(e) => setMReminder(e.target.value)}
-                placeholder={DEFAULT_BALANCE_TEMPLATE}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
               />
             </label>
@@ -763,7 +828,6 @@ export default function Settings() {
                 rows={6}
                 value={mPago}
                 onChange={(e) => setMPago(e.target.value)}
-                placeholder={DEFAULT_PAGO_TEMPLATE}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
               />
             </label>
@@ -806,10 +870,9 @@ export default function Settings() {
               </p>
             )}
           </form>
-        </section>
+        </SectionCard>
 
-        <section className="rounded-xl bg-white p-5 shadow">
-          <h2 className="text-lg font-bold text-slate-800">Cambiar PIN</h2>
+        <SectionCard title="Cambiar PIN" open={openSections.has('pin')} onToggle={() => toggleSection('pin')}>
           <form onSubmit={changePin} className="mt-4">
             <label className="block text-sm font-medium">
               PIN actual
@@ -854,7 +917,7 @@ export default function Settings() {
               Cambiar PIN
             </button>
           </form>
-        </section>
+        </SectionCard>
       </div>
     </Layout>
   );
