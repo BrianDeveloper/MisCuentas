@@ -3,7 +3,11 @@ import Layout from '../components/Layout';
 import { api, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
 import { invalidateSettings } from '../lib/settings';
-import type { PagoMovilConfig } from '../lib/whatsapp';
+import {
+  DEFAULT_BALANCE_TEMPLATE,
+  DEFAULT_PAGO_TEMPLATE,
+  type PagoMovilConfig,
+} from '../lib/whatsapp';
 
 export default function Settings() {
   const [rate, setRate] = useState<Rate | null>(null);
@@ -44,6 +48,12 @@ export default function Settings() {
   const [linkingWorker, setLinkingWorker] = useState(false);
   const [unlinkingWorker, setUnlinkingWorker] = useState(false);
 
+  const [mReminder, setMReminder] = useState('');
+  const [mPago, setMPago] = useState('');
+  const [savingMsgs, setSavingMsgs] = useState(false);
+  const [msgsMsg, setMsgsMsg] = useState('');
+  const [msgsMsgType, setMsgsMsgType] = useState<'ok' | 'err'>('ok');
+
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
     setter(text);
     msetter(type);
@@ -53,12 +63,14 @@ export default function Settings() {
     const [r, h, p] = await Promise.all([
       api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
       api<{ history: Rate[] }>('rates', { query: { action: 'history', limit: 15 } }),
-      api<{ pago: PagoMovilConfig | null; whatsappBaseUrl: string; whatsappToken: string }>('settings'),
+      api<{ pago: PagoMovilConfig | null; whatsappBaseUrl: string; whatsappToken: string; msgReminder: string; msgPago: string }>('settings'),
     ]);
     setRate(r.rate);
     setHistory(h.history);
     setWUrl(p.whatsappBaseUrl ?? '');
     setWToken(p.whatsappToken ?? '');
+    setMReminder(p.msgReminder ?? '');
+    setMPago(p.msgPago ?? '');
     if (p.pago) {
       setPago(p.pago);
       setPBanco(p.pago.banco);
@@ -370,6 +382,39 @@ export default function Settings() {
     } finally {
       setUnlinkingWorker(false);
     }
+  };
+
+  const saveMessages = async (e: FormEvent) => {
+    e.preventDefault();
+    setMsgsMsg('');
+    setSavingMsgs(true);
+    try {
+      const r = await api<{ ok: boolean; msgReminder: string; msgPago: string }>('settings', {
+        method: 'PUT',
+        query: { action: 'messages' },
+        body: { msgReminder: mReminder, msgPago: mPago },
+      });
+      setMReminder(r.msgReminder ?? '');
+      setMPago(r.msgPago ?? '');
+      notify('Mensajes guardados.', 'ok', setMsgsMsg, setMsgsMsgType);
+      invalidateSettings();
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : 'Error al guardar los mensajes.',
+        'err',
+        setMsgsMsg,
+        setMsgsMsgType,
+      );
+    } finally {
+      setSavingMsgs(false);
+    }
+  };
+
+  const restoreMessages = () => {
+    setMReminder(DEFAULT_BALANCE_TEMPLATE);
+    setMPago(DEFAULT_PAGO_TEMPLATE);
+    setMsgsMsg('Plantillas por defecto cargadas. Pulsa «Guardar mensajes» para aplicarlas.');
+    setMsgsMsgType('ok');
   };
 
   return (
@@ -693,6 +738,74 @@ export default function Settings() {
             SUPABASE_SERVICE_ROLE_KEY, y vincula WhatsApp escaneando el QR que
             genera el worker. La sesión se respalda en Supabase Storage.
           </p>
+        </section>
+
+        <section className="rounded-xl bg-white p-5 shadow">
+          <h2 className="text-lg font-bold text-slate-800">Mensajes de WhatsApp</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Edita el texto de los mensajes que se envían a tus clientes. Déjalos
+            vacíos para usar la plantilla por defecto.
+          </p>
+          <form onSubmit={saveMessages} className="mt-4 space-y-4">
+            <label className="block text-sm font-medium">
+              Recordatorio de saldo
+              <textarea
+                rows={6}
+                value={mReminder}
+                onChange={(e) => setMReminder(e.target.value)}
+                placeholder={DEFAULT_BALANCE_TEMPLATE}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              Pago móvil
+              <textarea
+                rows={6}
+                value={mPago}
+                onChange={(e) => setMPago(e.target.value)}
+                placeholder={DEFAULT_PAGO_TEMPLATE}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
+              />
+            </label>
+            <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+              <span className="font-semibold text-slate-700">Variables:</span>
+              <span className="block pt-1">
+                Recordatorio: {'{nombre} {fecha} {monto} {usd} {tasa}'}
+              </span>
+              <span className="block">
+                Pago móvil: {'{banco} {tipo} {documento} {telefono} {monto} {usd} {qr}'}
+              </span>
+              <p className="pt-1 text-slate-400">
+                Las líneas con variables vacías se omiten. {`{qr}`} solo se
+                inserta cuando hay un QR cargado.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={savingMsgs}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {savingMsgs ? 'Guardando…' : 'Guardar mensajes'}
+              </button>
+              <button
+                type="button"
+                onClick={restoreMessages}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Restaurar por defecto
+              </button>
+            </div>
+            {msgsMsg && (
+              <p
+                className={`text-sm ${
+                  msgsMsgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
+                }`}
+              >
+                {msgsMsg}
+              </p>
+            )}
+          </form>
         </section>
 
         <section className="rounded-xl bg-white p-5 shadow">

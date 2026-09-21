@@ -10,26 +10,74 @@ export function toWhatsAppNumber(phone: string): string | null {
   return digits;
 }
 
-export function buildBalanceMessage(opts: {
-  name: string;
-  balanceBs: number;
-  usdHoy: number;
-  rate: number | null;
-}): string {
-  const date = fmtDate(todayInput());
-  const lines = [
-    `Hola ${opts.name}!`,
-    '',
-    'Te recuerdo que tienes un saldo pendiente conmigo:',
-    '',
-    `- Fecha: ${date}`,
-    `- Monto adeudado: ${fmtBs(opts.balanceBs)} (aprox. ${fmtUsd(opts.usdHoy)} el día de hoy)`,
-  ];
-  if (opts.rate != null && opts.rate > 0) {
-    lines.push(`- Tasa BCV del día: 1 USD = Bs.S ${fmtNum(opts.rate)}`);
+const PLACEHOLDER_RE = /\{([a-zA-Z]+)\}/g;
+
+export const DEFAULT_BALANCE_TEMPLATE = [
+  'Hola {nombre}!',
+  '',
+  'Te recuerdo que tienes un saldo pendiente conmigo:',
+  '',
+  '- Fecha: {fecha}',
+  '- Monto adeudado: {monto} (aprox. {usd} el día de hoy)',
+  '- Tasa BCV del día: 1 USD = Bs.S {tasa}',
+  '',
+  'Agradezco tu abono cuando puedas. ¡Gracias!',
+].join('\n');
+
+export const DEFAULT_PAGO_TEMPLATE = [
+  'Para tu pago móvil:',
+  '',
+  '- Banco: {banco}',
+  '- {tipo}: {documento}',
+  '- Teléfono: {telefono}',
+  '',
+  '- Monto adeudado: {monto} (aprox. {usd})',
+  '{qr}',
+  '',
+  '¡Gracias!',
+].join('\n');
+
+function renderTemplate(
+  template: string,
+  vars: Record<string, string>,
+): string {
+  const lines = template.split('\n');
+  const rendered: string[] = [];
+  for (const raw of lines) {
+    let empty = false;
+    const line = raw.replace(PLACEHOLDER_RE, (_m, key: string) => {
+      const value = vars[key] ?? '';
+      if (value === '') empty = true;
+      return value;
+    });
+    if (empty) continue;
+    rendered.push(line.trimEnd());
   }
-  lines.push('', 'Agradezco tu abono cuando puedas. ¡Gracias!');
-  return lines.join('\n');
+  return rendered
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function buildBalanceMessage(
+  opts: {
+    name: string;
+    balanceBs: number;
+    usdHoy: number;
+    rate: number | null;
+  },
+  template?: string,
+): string {
+  return renderTemplate(
+    template && template.trim() ? template : DEFAULT_BALANCE_TEMPLATE,
+    {
+      nombre: opts.name,
+      fecha: fmtDate(todayInput()),
+      monto: fmtBs(opts.balanceBs),
+      usd: fmtUsd(opts.usdHoy),
+      tasa: opts.rate != null && opts.rate > 0 ? fmtNum(opts.rate) : '',
+    },
+  );
 }
 
 export function buildWhatsAppUrl(number: string, message: string): string {
@@ -49,24 +97,27 @@ export interface PagoMovilConfig {
   whatsappToken?: string;
 }
 
-export function buildPagoMovilMessage(opts: {
-  balanceBs: number;
-  usdHoy: number;
-  pago: PagoMovilConfig;
-  qrUrl: string | null;
-}): string {
-  const lines = [
-    'Para tu pago móvil:',
-    '',
-    `- Banco: ${opts.pago.banco}`,
-    `- ${opts.pago.tipoDoc}: ${opts.pago.documento}`,
-    `- Teléfono: ${opts.pago.telefono}`,
-    '',
-    `- Monto adeudado: ${fmtBs(opts.balanceBs)} (aprox. ${fmtUsd(opts.usdHoy)})`,
-    '',
-    '¡Gracias!',
-  ];
-  return lines.join('\n');
+export function buildPagoMovilMessage(
+  opts: {
+    balanceBs: number;
+    usdHoy: number;
+    pago: PagoMovilConfig;
+    qrUrl: string | null;
+  },
+  template?: string,
+): string {
+  return renderTemplate(
+    template && template.trim() ? template : DEFAULT_PAGO_TEMPLATE,
+    {
+      banco: opts.pago.banco,
+      tipo: opts.pago.tipoDoc,
+      documento: opts.pago.documento,
+      telefono: opts.pago.telefono,
+      monto: fmtBs(opts.balanceBs),
+      usd: fmtUsd(opts.usdHoy),
+      qr: opts.qrUrl ? `QR de pago: ${opts.qrUrl}` : '',
+    },
+  );
 }
 
 export function buildPagoMovilUrl(opts: {

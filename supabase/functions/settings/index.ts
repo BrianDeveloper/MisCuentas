@@ -67,11 +67,25 @@ Deno.serve(async (req: Request) => {
         qrBase: baseUrl,
         whatsappBaseUrl,
         whatsappToken,
+        msgReminder: (await getSetting('msgReminder')) ?? '',
+        msgPago: (await getSetting('msgPago')) ?? '',
       });
     }
 
     if (req.method === 'PUT') {
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+      if (action === 'messages') {
+        const msgReminder = String(body.msgReminder ?? '').trim();
+        const msgPago = String(body.msgPago ?? '').trim();
+        await setSetting('msgReminder', msgReminder);
+        await setSetting('msgPago', msgPago);
+        return json({
+          ok: true,
+          msgReminder: (await getSetting('msgReminder')) ?? '',
+          msgPago: (await getSetting('msgPago')) ?? '',
+        });
+      }
 
       if (action === 'worker') {
         const whatsappBaseUrl = String(body.whatsappBaseUrl ?? '').trim()

@@ -44,7 +44,10 @@ export default function PagoMovilButton({
   if (!hasData) return null;
 
   const qrUrl = pago.hasQr && pago.qrUrl ? pago.qrUrl : null;
-  const text = buildPagoMovilMessage({ balanceBs, usdHoy, pago, qrUrl });
+  const text = buildPagoMovilMessage(
+    { balanceBs, usdHoy, pago, qrUrl },
+    settings?.msgPago,
+  );
   const waHref = buildWhatsAppUrl(number, text);
 
   const workerBase = (settings?.whatsappBaseUrl ?? '').trim();

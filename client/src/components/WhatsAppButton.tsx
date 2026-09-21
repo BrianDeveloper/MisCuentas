@@ -41,7 +41,10 @@ export default function WhatsAppButton({
 
   const number = toWhatsAppNumber(phone);
   if (!number) return null;
-  const message = buildBalanceMessage({ name, balanceBs, usdHoy, rate });
+  const message = buildBalanceMessage(
+    { name, balanceBs, usdHoy, rate },
+    settings?.msgReminder,
+  );
   const waHref = buildWhatsAppUrl(number, message);
 
   const workerBase = (settings?.whatsappBaseUrl ?? '').trim();
