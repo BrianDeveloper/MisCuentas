@@ -59,8 +59,6 @@ Deno.serve(async (req: Request) => {
           hasQr,
           qrFile: qrFile ?? '',
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
-          whatsappBaseUrl: (await getSetting('whatsappBaseUrl')) ?? '',
-          whatsappToken: (await getSetting('whatsappToken')) ?? '',
         },
         qrBase: baseUrl,
       });
@@ -82,14 +80,6 @@ Deno.serve(async (req: Request) => {
 
       await setSetting('pagoMovil', JSON.stringify({ banco, tipoDoc, documento, telefono }));
 
-      const whatsappBaseUrl = String(body.whatsappBaseUrl ?? '').trim().replace(/\/+$/, '');
-      if (whatsappBaseUrl && !/^https?:\/\//i.test(whatsappBaseUrl)) {
-        return json({ error: 'La URL del worker debe empezar con http:// o https://' }, 400);
-      }
-      await setSetting('whatsappBaseUrl', whatsappBaseUrl);
-
-      await setSetting('whatsappToken', String(body.whatsappToken ?? '').trim());
-
       const qrFile = await getSetting('pagoMovilQrFile');
       const baseUrl = STORAGE_PUBLIC_BASE();
       const hasQr = Boolean(qrFile);
@@ -105,8 +95,6 @@ Deno.serve(async (req: Request) => {
           hasQr,
           qrFile: qrFile ?? '',
           qrUrl: hasQr ? `${baseUrl}/${qrFile}` : '',
-          whatsappBaseUrl,
-          whatsappToken: String(body.whatsappToken ?? '').trim(),
         },
         qrBase: baseUrl,
       });
