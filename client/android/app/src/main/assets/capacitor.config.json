@@ -1,0 +1,8 @@
+{
+	"appId": "com.bridev.miscuentas",
+	"appName": "Mis Cuentas",
+	"webDir": "dist",
+	"android": {
+		"backgroundColor": "#f1f5f9"
+	}
+}

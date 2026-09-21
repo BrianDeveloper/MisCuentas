@@ -130,25 +130,39 @@ cold start y suma parseo en el arranque). Optimización diferida de las funcione
   hace menos llamadas (Home 1 en vez de 3, auth de arranque 1 en vez de 2).
 
 ## 7. Fase 7 (OPCIONAL): App Android híbrida con Capacitor
-**Estado: aprobado por el usuario.** Se implementará tras la ronda de feedback UX
-(toasts, indicadores de carga) y optimización de velocidad (todas ya aplicadas).
+**Estado: IMPLEMENTADO (Fases A–C).** El APK se genera automáticamente en
+GitHub Actions; la versión de navegador en GitHub Pages sigue funcionando igual
+(ejecutan el mismo código, misma base de datos, independientes entre sí).
 
-Arquitectura: la app ya será "SPA estático + Supabase/Edge remoto + worker vía URL https", de modo que el wrapper híbrido no cambia nada del backend.
-
-Opciones:
-- **A. APK standalone**: `@capacitor/cli`, `@capacitor/core`, `@capacitor/android`; `webDir: client/dist`; se empaqueta el build dentro del `.apk`. Se actualiza con nueva build.
-- **B. App que apunta a la URL de Pages**: `server.url: https://brianddeveloper.github.io/MisCuentas/` en `capacitor.config.ts`; se actualiza sola al desplegar, requiere internet.
+Arquitectura: la app ya es "SPA estático + Supabase/Edge remoto + worker vía URL https",
+de modo que el wrapper híbrido no cambia nada del backend. Se optó por la **opción A
+(APK standalone)**: `vite build --base=./` empaqueta la web dentro del `.apk`.
 
 Detalles que ya la benefician:
 - Supabase (https) y el worker vía Tailscale Funnel funcionan desde Android sin cambios.
 - El token de PIN en `localStorage` persiste en el WebView de Capacitor.
-- Solo hace falta Android Studio (o Capacitor Cloud) para firmar el `.apk`.
 - El escaneo del QR de vinculación de WhatsApp se hace desde la cámara del móvil igual que hoy.
+- La firma de `assembleRelease` usa el keystore de debug (APK instalable por sideload).
 
-Checklist (cuando se active):
-1. `npm i -w client @capacitor/core @capacitor/cli @capacitor/android`.
-2. `npx cap init MisCuentas com.<dominio>.miscuentas --web-dir=dist`.
-3. Configurar `capacitor.config.ts` (opción A: empaquetado local; opción B: `server.url`).
-4. `npm run build -w client && npx cap add android && npx cap sync`.
-5. Abrir `android/` en Android Studio → Build APK (o Capacitor Cloud).
-6. Probar login PIN, QR público de Storage y envío WhatsApp desde el móvil.
+Cómo se hizo:
+- `client/capacitor.config.ts`: `appId com.bridev.miscuentas`, `appName "Mis Cuentas"`,
+  `webDir dist`. Plugins: `@capacitor/browser`, `@capacitor/filesystem`, `@capacitor/share`.
+- `client/scripts/gen-assets.mjs` genera el logo (PNG 1024×1024, monograma "M" sobre
+  moneda esmeralda) y `npx capacitor-assets generate --android` crea los iconos/splash.
+- `client/android/` versionado (builds ignorados vía `client/android/.gitignore`).
+- `client/package.json` → script `build:app`: `tsc --noEmit && vite build --base=./ && cap sync android`.
+- `client/src/lib/links.ts`: en nativo `openExternal()` abre en el navegador del sistema
+  (`Browser.open`); dentro de la WebView ya no se navega a wa.me. Los botones Recordatorio/Pago
+  móvil y el export CSV usan esta vía (CSV nativo: `Filesystem` + `Share`).
+- `client/src/lib/worker.ts`: fallback propio para `AbortSignal.timeout` (WebViews antiguos).
+
+Cómo sacar el APK:
+1. El workflow `.github/workflows/android-build.yml` corre en `push` a `main` (si tocan
+   `client/**`) y manualmente (`workflow_dispatch`).
+2. Descargar el artefacto **mis-cuentas-apk** (Actions → run → Artifacts).
+3. Copiar `app-release.apk` al móvil → instalar (permite "orígenes desconocidos").
+
+Pasos a futuro (no hechos): Play Store/Capacitor Cloud para firma de release con keystore
+propio, nota de versión dentro de la app, `cap sync`/re-build automático vía CI ya cubierto.
+
+Probar manualmente de referencia: login PIN, QR público de Storage y envío WhatsApp desde el móvil.

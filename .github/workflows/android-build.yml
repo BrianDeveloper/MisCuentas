@@ -1,0 +1,46 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - '.github/workflows/android-build.yml'
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Installar dependencias
+        run: npm ci
+
+      - name: Compilar web y sincronizar Capacitor
+        run: npm run build:app -w client
+
+      - name: Compilar APK Release
+        working-directory: client/android
+        run: ./gradlew assembleRelease
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mis-cuentas-apk
+          path: client/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error

@@ -8,10 +8,19 @@ export class WorkerSendError extends Error {
   }
 }
 
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), ms);
+  return ctrl.signal;
+}
+
 export function warmWorker(base: string): void {
   const url = base.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//.test(url)) return;
-  fetch(`${url}/status`, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+  fetch(`${url}/status`, { signal: timeoutSignal(15_000) }).catch(() => {});
 }
 
 const ATTEMPTS = 3;
@@ -44,7 +53,7 @@ export async function sendViaWorker(opts: {
           text: opts.text,
           imageUrl: opts.imageUrl ?? '',
         }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: timeoutSignal(TIMEOUT_MS),
       });
       if (res.ok) return;
       const msg = await res

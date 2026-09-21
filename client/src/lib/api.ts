@@ -1,3 +1,7 @@
+import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { isNative } from './links';
+
 const BASE = String(
   (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
 )
@@ -119,17 +123,50 @@ export async function apiBlob(fn: EdgeFn, opts: ApiOptions = {}): Promise<Blob> 
   return res.blob();
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('No se pudo leer el archivo.'));
+        return;
+      }
+      const idx = result.indexOf(',');
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error('No se pudo leer el archivo.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export async function downloadExport(
   query: Record<string, string | number | undefined>,
   filename: string,
 ): Promise<void> {
   const blob = await apiBlob('export', { query });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  if (!isNative()) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return;
+  }
+  const base64 = await blobToBase64(blob);
+  const saved = await Filesystem.writeFile({
+    path: filename,
+    data: base64,
+    directory: Directory.Cache,
+    recursive: true,
+  });
+  await Share.share({
+    title: filename,
+    files: [saved.uri],
+    dialogTitle: 'Exportar resumen',
+  });
 }

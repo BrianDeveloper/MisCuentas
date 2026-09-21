@@ -5,6 +5,7 @@ import {
   buildWhatsAppUrl,
   toWhatsAppNumber,
 } from '../lib/whatsapp';
+import { isNative, openExternal } from '../lib/links';
 import { sendViaWorker, warmWorker } from '../lib/worker';
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
@@ -52,8 +53,11 @@ export default function WhatsAppButton({
   const workerEnabled = Boolean(workerBase);
 
   const sendReminder = async (e: MouseEvent<HTMLAnchorElement>) => {
-    if (!workerEnabled) return;
-    e.preventDefault();
+    if (isNative()) e.preventDefault();
+    if (!workerEnabled) {
+      void openExternal(waHref);
+      return;
+    }
     if (send === 'sending') return;
     setSend('sending');
     setReason('');
@@ -69,7 +73,7 @@ export default function WhatsAppButton({
         setSend('idle');
         setReason('');
       }, 4000);
-      window.open(waHref, '_blank', 'noopener,noreferrer');
+      void openExternal(waHref);
     }
   };
 
