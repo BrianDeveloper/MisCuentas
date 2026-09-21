@@ -41,8 +41,8 @@ export default function ClientDetail() {
 
   const load = useCallback(async () => {
     const [d, r] = await Promise.all([
-      api<Detail>(`/api/clients/${clientId}`),
-      api<{ rate: Rate | null }>('/api/rates/latest'),
+      api<Detail>('clients', { query: { action: 'get', id: clientId } }),
+      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
     ]);
     setData(d);
     setRate(r.rate);
@@ -82,15 +82,17 @@ export default function ClientDetail() {
     }
     setBusy(true);
     try {
-      await api(`/api/clients/${clientId}/movements`, {
+      await api('clients', {
         method: 'POST',
-        body: JSON.stringify({
+        query: { action: 'movement-create' },
+        body: {
+          client_id: clientId,
           type: mType,
           currency: mCurrency,
           amount,
           date: mDate,
           concept: mConcept,
-        }),
+        },
       });
       setMAmount('');
       setMConcept('');
@@ -105,8 +107,9 @@ export default function ClientDetail() {
   const removeMovement = async (movementId: number) => {
     if (!window.confirm('¿Eliminar este movimiento?')) return;
     try {
-      await api(`/api/clients/movements/${movementId}`, {
+      await api('clients', {
         method: 'DELETE',
+        query: { action: 'movement-delete', id: movementId },
       });
       await load();
     } catch (err) {
@@ -122,7 +125,10 @@ export default function ClientDetail() {
     )
       return;
     try {
-      await api(`/api/clients/${clientId}`, { method: 'DELETE' });
+      await api('clients', {
+        method: 'DELETE',
+        query: { action: 'delete', id: clientId },
+      });
       navigate('/clients');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error inesperado');

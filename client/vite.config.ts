@@ -4,15 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: '/MisCuentas/',
   server: {
-    host: true, // <--- Añade esto para exponerlo a la red local
+    host: true,
     port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-    },
   },
   build: {
     outDir: 'dist',

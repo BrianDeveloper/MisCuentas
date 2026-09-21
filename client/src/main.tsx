@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import './index.css';
 import Setup from './pages/Setup';
@@ -37,9 +37,9 @@ function Shell() {
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <HashRouter>
         <Shell />
-      </BrowserRouter>
+      </HashRouter>
     </AuthProvider>
   );
 }

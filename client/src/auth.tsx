@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api } from './lib/api';
+import { api, ApiError, setToken } from './lib/api';
 
 type AuthStatus = 'loading' | 'setup' | 'loggedOut' | 'loggedIn';
 
@@ -25,18 +25,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const info = await api<{ configured: boolean }>('/api/auth/status');
+      const info = await api<{ configured: boolean }>('auth', {
+        query: { action: 'status' },
+      });
       if (!info.configured) {
+        setToken(null);
         setStatus('setup');
         return;
       }
       try {
-        await api<{ ok: boolean }>('/api/auth/me');
+        await api<{ ok: boolean }>('auth', { query: { action: 'me' } });
         setStatus('loggedIn');
-      } catch {
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) setToken(null);
         setStatus('loggedOut');
       }
     } catch {
+      setToken(null);
       setStatus('setup');
     }
   }, []);
@@ -45,34 +50,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const login = useCallback(
-    async (pin: string) => {
-      await api<{ ok: boolean }>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ pin }),
-      });
-      setStatus('loggedIn');
-    },
-    [],
-  );
+  const login = useCallback(async (pin: string) => {
+    const r = await api<{ ok: boolean; token: string }>('auth', {
+      method: 'POST',
+      query: { action: 'login' },
+      body: { pin },
+    });
+    setToken(r.token);
+    setStatus('loggedIn');
+  }, []);
 
-  const setup = useCallback(
-    async (pin: string) => {
-      await api<{ ok: boolean }>('/api/auth/setup', {
-        method: 'POST',
-        body: JSON.stringify({ pin }),
-      });
-      setStatus('loggedIn');
-    },
-    [],
-  );
+  const setup = useCallback(async (pin: string) => {
+    const r = await api<{ ok: boolean; token: string }>('auth', {
+      method: 'POST',
+      query: { action: 'setup' },
+      body: { pin },
+    });
+    setToken(r.token);
+    setStatus('loggedIn');
+  }, []);
 
   const logout = useCallback(async () => {
     try {
-      await api<{ ok: boolean }>('/api/auth/logout', {
+      await api<{ ok: boolean }>('auth', {
         method: 'POST',
+        query: { action: 'logout' },
       });
     } finally {
+      setToken(null);
       setStatus('loggedOut');
     }
   }, []);

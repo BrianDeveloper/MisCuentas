@@ -9,7 +9,7 @@ import RateConverter from './RateConverter';
 function RatePill() {
   const [rate, setRate] = useState<Rate | null>(null);
   useEffect(() => {
-    api<{ rate: Rate | null }>('/api/rates/latest')
+    api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } })
       .then((r) => setRate(r.rate))
       .catch(() => {});
   }, []);

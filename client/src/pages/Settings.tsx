@@ -26,7 +26,7 @@ export default function Settings() {
   const [pTipoDoc, setPTipoDoc] = useState('V');
   const [pDocumento, setPDocumento] = useState('');
   const [pTelefono, setPTelefono] = useState('');
-  const [pBaseUrl, setPBaseUrl] = useState('');
+  const [pWorkerUrl, setPWorkerUrl] = useState('');
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
   const [savingPago, setSavingPago] = useState(false);
@@ -34,8 +34,7 @@ export default function Settings() {
   const [pagoMsgType, setPagoMsgType] = useState<'ok' | 'err'>('ok');
 
   const [wa, setWa] = useState<{ connected: boolean; phone: string | null } | null>(null);
-  const [linking, setLinking] = useState(false);
-  const [qrTs, setQrTs] = useState(0);
+  const [checkingWa, setCheckingWa] = useState(false);
   const [waMsg, setWaMsg] = useState('');
 
   const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
@@ -45,21 +44,19 @@ export default function Settings() {
 
   const load = async () => {
     const [r, h, p] = await Promise.all([
-      api<{ rate: Rate | null }>('/api/rates/latest'),
-      api<{ history: Rate[] }>('/api/rates/history?limit=15'),
-      api<{ pago: PagoMovilConfig | null; qrBase: string }>(
-        '/api/settings/pago-movil',
-      ),
+      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
+      api<{ history: Rate[] }>('rates', { query: { action: 'history', limit: 15 } }),
+      api<{ pago: PagoMovilConfig | null }>('settings'),
     ]);
     setRate(r.rate);
     setHistory(h.history);
     if (p.pago) {
-      setPago({ ...p.pago, baseUrl: p.qrBase });
+      setPago(p.pago);
       setPBanco(p.pago.banco);
       setPTipoDoc(p.pago.tipoDoc);
       setPDocumento(p.pago.documento);
       setPTelefono(p.pago.telefono);
-      setPBaseUrl(p.qrBase);
+      setPWorkerUrl(p.pago.whatsappBaseUrl);
     }
   };
 
@@ -67,52 +64,23 @@ export default function Settings() {
     load().catch(() => {});
   }, []);
 
-  useEffect(() => {
-    api<{ connected: boolean; phone: string | null }>('/api/whatsapp/status')
-      .then(setWa)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!linking) return;
-    const statusId = window.setInterval(async () => {
-      try {
-        const s = await api<{ connected: boolean; phone: string | null }>(
-          '/api/whatsapp/status',
-        );
-        setWa(s);
-        if (s.connected) setLinking(false);
-      } catch {
-        /* reintenta */
-      }
-    }, 2000);
-    const qrId = window.setInterval(() => setQrTs(Date.now()), 8000);
-    return () => {
-      window.clearInterval(statusId);
-      window.clearInterval(qrId);
-    };
-  }, [linking]);
-
-  const linkWhatsApp = async () => {
+  const checkWorker = async () => {
+    setCheckingWa(true);
+    setWa(null);
     setWaMsg('');
-    setLinking(true);
     try {
-      const r = await api<{ connected: boolean; qr: string | null }>(
-        '/api/whatsapp/link',
-        { method: 'POST' },
-      );
-      if (r.connected) {
-        setWa({ connected: true, phone: null });
-        setLinking(false);
-      } else {
-        setWaMsg('Escanea el QR desde tu teléfono.');
-        setQrTs(Date.now());
-      }
-    } catch (err) {
-      setLinking(false);
-      setWaMsg(
-        err instanceof Error ? err.message : 'No se pudo iniciar la vinculación.',
-      );
+      const base = pWorkerUrl.trim().replace(/\/+$/, '');
+      const res = await fetch(`${base}/status`);
+      const data = (await res.json().catch(() => ({}))) as {
+        connected?: boolean;
+        phone?: string | null;
+      };
+      setWa({ connected: Boolean(data.connected), phone: data.phone ?? null });
+    } catch {
+      setWa({ connected: false, phone: null });
+      setWaMsg('No se pudo contactar el worker.');
+    } finally {
+      setCheckingWa(false);
     }
   };
 
@@ -120,10 +88,10 @@ export default function Settings() {
     setRefreshing(true);
     setMsg('');
     try {
-      const r = await api<{ ok: boolean; rate: Rate | null }>(
-        '/api/rates/refresh',
-        { method: 'POST' },
-      );
+      const r = await api<{ ok: boolean; rate: Rate | null }>('rates', {
+        method: 'POST',
+        query: { action: 'refresh' },
+      });
       setRate(r.rate);
       notify(
         r.rate
@@ -151,9 +119,10 @@ export default function Settings() {
     setManualMsg('');
     try {
       const usd_ves = parseFloat(mUsdVes.replace(',', '.'));
-      const r = await api<{ ok: boolean; rate: Rate | null }>('/api/rates', {
+      const r = await api<{ ok: boolean; rate: Rate | null }>('rates', {
         method: 'POST',
-        body: JSON.stringify({ date: mDate, usd_ves }),
+        query: { action: 'manual' },
+        body: { date: mDate, usd_ves },
       });
       notify(
         r.rate
@@ -187,9 +156,10 @@ export default function Settings() {
       return;
     }
     try {
-      await api('/api/auth/change-pin', {
+      await api('auth', {
         method: 'POST',
-        body: JSON.stringify({ current: curPin, next: newPin }),
+        query: { action: 'change-pin' },
+        body: { current: curPin, next: newPin },
       });
       setPinMsg('PIN actualizado correctamente.');
       setCurPin('');
@@ -220,22 +190,25 @@ export default function Settings() {
       setPagoMsgType('err');
       return;
     }
+    if (pWorkerUrl.trim() && !/^https?:\/\//i.test(pWorkerUrl.trim())) {
+      setPagoMsg('La URL del worker debe empezar con http:// o https://');
+      setPagoMsgType('err');
+      return;
+    }
     setSavingPago(true);
     try {
-      const r = await api<{ ok: boolean; pago: PagoMovilConfig; qrBase: string }>(
-        '/api/settings/pago-movil',
-        {
-          method: 'PUT',
-          body: JSON.stringify({
-            banco: pBanco,
-            tipoDoc: pTipoDoc,
-            documento: pDocumento,
-            telefono: pTelefono,
-            baseUrl: pBaseUrl,
-          }),
+      const r = await api<{ ok: boolean; pago: PagoMovilConfig }>('settings', {
+        method: 'PUT',
+        query: { action: 'update' },
+        body: {
+          banco: pBanco,
+          tipoDoc: pTipoDoc,
+          documento: pDocumento,
+          telefono: pTelefono,
+          whatsappBaseUrl: pWorkerUrl.trim(),
         },
-      );
-      let pagoUpdated = { ...r.pago, baseUrl: r.qrBase };
+      });
+      let pagoUpdated = r.pago;
       if (qrFile) {
         const reader = new FileReader();
         const base64 = await new Promise<string>((resolve, reject) => {
@@ -243,17 +216,19 @@ export default function Settings() {
           reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
           reader.readAsDataURL(qrFile);
         });
-        const q = await api<{ ok: boolean; hasQr: boolean; qrFile: string }>(
-          '/api/settings/pago-movil/qr',
+        const q = await api<{ ok: boolean; hasQr: boolean; qrFile: string; qrUrl?: string }>(
+          'qr',
           {
             method: 'POST',
-            body: JSON.stringify({
-              dataBase64: base64,
-              mime: qrFile.type,
-            }),
+            body: { dataBase64: base64, mime: qrFile.type },
           },
         );
-        pagoUpdated = { ...pagoUpdated, hasQr: q.hasQr, qrFile: q.qrFile };
+        pagoUpdated = {
+          ...pagoUpdated,
+          hasQr: q.hasQr,
+          qrFile: q.qrFile,
+          qrUrl: q.qrUrl ?? '',
+        };
       }
       setPago(pagoUpdated);
       setQrFile(null);
@@ -271,14 +246,11 @@ export default function Settings() {
   const removeQr = async () => {
     setPagoMsg('');
     try {
-      const q = await api<{ ok: boolean; hasQr: boolean; qrFile: string }>(
-        '/api/settings/pago-movil/qr',
-        {
-          method: 'POST',
-          body: JSON.stringify({ remove: true }),
-        },
-      );
-      setPago((p) => (p ? { ...p, hasQr: false, qrFile: '' } : p));
+      const q = await api<{ ok: boolean; hasQr: boolean; qrFile: string }>('qr', {
+        method: 'POST',
+        body: { remove: true },
+      });
+      setPago((p) => (p ? { ...p, hasQr: false, qrFile: '', qrUrl: '' } : p));
       setQrPreview(null);
       setQrFile(null);
       setPagoMsg(q.hasQr ? 'No se pudo quitar el QR.' : 'QR eliminado.');
@@ -450,19 +422,19 @@ export default function Settings() {
             </label>
 
             <label className="block text-sm font-medium">
-              URL del servidor (para el QR)
+              URL del servidor de envío (worker WhatsApp)
               <input
                 type="text"
                 inputMode="url"
-                placeholder="http://192.168.1.20:3001"
-                value={pBaseUrl}
-                onChange={(e) => setPBaseUrl(e.target.value)}
+                placeholder="https://tu-worker.tailnet.ts.net"
+                value={pWorkerUrl}
+                onChange={(e) => setPWorkerUrl(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
               <span className="mt-1 block text-xs text-slate-400">
-                La IP y puerto donde corre la app, visible desde tu teléfono en
-                la misma red. Sin esto, WhatsApp no puede mostrar el QR como
-                imagen.
+                Opcional. Si la dejas vacía, el botón de pago móvil abre WhatsApp
+                con el mensaje y el QR precargados. Si la configuras, el mensaje
+                se envía automáticamente desde tu número vinculado.
               </span>
             </label>
 
@@ -473,7 +445,7 @@ export default function Settings() {
               {pago?.hasQr ? (
                 <div className="mt-2 flex items-center gap-3">
                   <img
-                    src={`${window.location.origin}/api/pago/${pago.qrFile}`}
+                    src={pago.qrUrl}
                     alt="QR de pago"
                     className="h-24 w-24 rounded-lg border border-slate-200 object-contain"
                   />
@@ -530,75 +502,45 @@ export default function Settings() {
         </section>
 
         <section className="rounded-xl bg-white p-5 shadow">
-          <h2 className="text-lg font-bold text-slate-800">WhatsApp vinculado</h2>
+          <h2 className="text-lg font-bold text-slate-800">Servidor de WhatsApp</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Al vincular tu WhatsApp, el botón &quot;Pago móvil&quot; envía el mensaje
-            y el QR como imagen adjunta, sin depender del enlace wa.me.
+            El worker vinculado a tu WhatsApp permite enviar el mensaje de pago
+            móvil con el QR como imagen adjunta, sin depender del enlace wa.me.
           </p>
-          {wa === null ? (
-            <p className="mt-4 text-sm text-slate-400">Consultando estado…</p>
-          ) : wa.connected ? (
-            <div className="mt-4">
-              <p className="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M19.916 4.626a.75.75 0 011.208.659v11.43a.75.75 0 01-1.28.53L15.5 12.7v1.3a3.25 3.25 0 01-3.25 3.25h-1.5A3.25 3.25 0 017.5 14V10A3.25 3.25 0 0110.75 6.75h1.5A3.25 3.25 0 0115.5 10v1.3l4.344-5.015a.75.75 0 01.072-.063zM12.75 8.25h-1.5a1.75 1.75 0 00-1.75 1.75v4a1.75 1.75 0 001.75 1.75h1.5a1.75 1.75 0 001.75-1.75v-4a1.75 1.75 0 00-1.75-1.75z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                Conectado {wa.phone ? `· ${wa.phone}` : ''}
-              </p>
-              <p className="mt-3 text-xs text-slate-400">
-                Los envíos se hacen desde tu número vinculado.
-              </p>
-            </div>
+          {!pWorkerUrl.trim() ? (
+            <p className="mt-4 text-sm text-slate-500">
+              Sin worker configurado. Los botones usarán el enlace wa.me;
+              configura la &quot;URL del servidor de envío&quot; en la tarjeta de
+              pago móvil para habilitar el envío automático.
+            </p>
           ) : (
             <div className="mt-4">
               <button
                 type="button"
-                onClick={linkWhatsApp}
-                disabled={linking}
+                onClick={checkWorker}
+                disabled={checkingWa}
                 className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
               >
-                {linking ? 'Esperando escaneo…' : 'Conectar WhatsApp'}
+                {checkingWa ? 'Comprobando…' : 'Comprobar conexión'}
               </button>
-              {linking && !wa?.connected && (
-                <div className="mt-4">
-                  {qrTs > 0 ? (
-                    <img
-                      src={`/api/whatsapp/qr.png?ts=${qrTs}`}
-                      alt="QR de vinculación"
-                      className="mx-auto h-56 w-56 rounded-lg border border-slate-200"
-                    />
-                  ) : (
-                    <p className="py-10 text-center text-sm text-slate-400">
-                      Generando QR…
-                    </p>
-                  )}
-                  <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-600">
-                    <li>Abre WhatsApp en tu celular.</li>
-                    <li>
-                      Menú → Ajustes → Dispositivos vinculados → Vincular un
-                      dispositivo.
-                    </li>
-                    <li>Escanea este QR con la cámara.</li>
-                  </ol>
-                </div>
+              {wa && (
+                <p
+                  className={`mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+                    wa.connected
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-amber-50 text-amber-700'
+                  }`}
+                >
+                  {wa.connected
+                    ? `Conectado${wa.phone ? ` · ${wa.phone}` : ''}`
+                    : 'No conectado'}
+                </p>
               )}
-              {!linking && waMsg && (
-                <p className="mt-3 text-sm text-amber-700">{waMsg}</p>
-              )}
+              {waMsg && <p className="mt-2 text-sm text-amber-700">{waMsg}</p>}
               <p className="mt-3 text-xs text-slate-400">
-                Es una sesión adicional de tu cuenta (dispositivo vinculado).
-                Cierra sesión desde el celular cuando no lo uses de forma
-                permanente.
+                El worker se vincula por separado (sesión adicional de tu
+                WhatsApp). Con esta URL activa, el botón &quot;Pago móvil&quot;
+                envía directamente en lugar de abrir wa.me.
               </p>
             </div>
           )}

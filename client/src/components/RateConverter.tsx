@@ -41,7 +41,7 @@ export default function RateConverter() {
 
   const load = useCallback(() => {
     setBusy(true);
-    api<{ rate: Rate | null }>('/api/rates/latest')
+    api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } })
       .then((r) => setRate(r.rate))
       .catch(() => {})
       .finally(() => setBusy(false));

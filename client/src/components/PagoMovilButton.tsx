@@ -7,11 +7,6 @@ import {
   type PagoMovilConfig,
 } from '../lib/whatsapp';
 
-interface WaStatus {
-  connected: boolean;
-  phone: string | null;
-}
-
 export default function PagoMovilButton({
   phone,
   name,
@@ -24,50 +19,48 @@ export default function PagoMovilButton({
   usdHoy: number;
 }) {
   const [pago, setPago] = useState<PagoMovilConfig | null | undefined>(undefined);
-  const [wa, setWa] = useState<WaStatus | null>(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [errText, setErrText] = useState('');
 
   useEffect(() => {
-    api<{ pago: PagoMovilConfig | null }>('/api/settings/pago-movil')
+    api<{ pago: PagoMovilConfig }>('settings')
       .then((r) => setPago(r.pago))
       .catch(() => setPago(null));
-    api<WaStatus>('/api/whatsapp/status')
-      .then(setWa)
-      .catch(() => setWa({ connected: false, phone: null }));
   }, []);
 
   const number = toWhatsAppNumber(phone);
-  const hasData =
-    pago !== null &&
-    pago !== undefined &&
-    Boolean(pago.banco || pago.documento || pago.telefono);
-  if (!number || !hasData) return null;
+  if (!number || !pago) return null;
+  const hasData = Boolean(pago.banco || pago.documento || pago.telefono);
+  if (!hasData) return null;
 
-  const connected = wa?.connected === true;
-
-  const qrBase = pago.baseUrl?.trim() || window.location.origin;
-  const qrUrl = pago.hasQr && pago.qrFile
-    ? `${qrBase.replace(/\/+$/, '')}/api/pago/${pago.qrFile}`
-    : null;
+  const connected = Boolean(pago.whatsappBaseUrl);
+  const qrUrl = pago.hasQr && pago.qrUrl ? pago.qrUrl : null;
 
   const send = async () => {
-    if (sending) return;
+    if (sending || !pago?.whatsappBaseUrl) return;
     setSending(true);
     setSent(false);
     setErrText('');
     try {
       const caption = buildPagoMovilMessage({ balanceBs, usdHoy, pago, qrUrl: null });
-      await api('/api/whatsapp/send', {
+      const base = pago.whatsappBaseUrl.replace(/\/+$/, '');
+      const res = await fetch(`${base}/send`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: number,
           text: caption,
-          attach: pago.hasQr,
-          qrFile: pago.hasQr ? pago.qrFile : '',
+          imageUrl: qrUrl ?? '',
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new ApiError(
+          res.status,
+          (data as { error?: string }).error || 'No se pudo enviar.',
+        );
+      }
       setSent(true);
       setTimeout(() => setSent(false), 5000);
     } catch (err) {

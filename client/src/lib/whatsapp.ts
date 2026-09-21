@@ -44,6 +44,8 @@ export interface PagoMovilConfig {
   hasQr: boolean;
   qrFile: string;
   baseUrl: string;
+  qrUrl: string;
+  whatsappBaseUrl: string;
 }
 
 export function buildPagoMovilMessage(opts: {

@@ -12,9 +12,11 @@ export default function Home() {
 
   useEffect(() => {
     Promise.all([
-      api<{ clients: ClientSummary[] }>('/api/clients'),
-      api<{ rate: Rate | null }>('/api/rates/latest'),
-      api<{ movements: RecentMovement[] }>('/api/movements/recent?limit=10'),
+      api<{ clients: ClientSummary[] }>('clients', { query: { action: 'list' } }),
+      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
+      api<{ movements: RecentMovement[] }>('clients', {
+        query: { action: 'recent', limit: 10 },
+      }),
     ])
       .then(([c, r, m]) => {
         setClients(c.clients);

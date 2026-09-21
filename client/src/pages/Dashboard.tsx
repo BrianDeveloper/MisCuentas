@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { api, type ClientSummary, type Rate } from '../lib/api';
+import { api, downloadExport, type ClientSummary, type Rate } from '../lib/api';
 import { fmtBs, fmtUsd } from '../lib/format';
 
 export default function Dashboard() {
@@ -15,11 +15,12 @@ export default function Dashboard() {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const load = async () => {
     const [data, r] = await Promise.all([
-      api<{ clients: ClientSummary[] }>('/api/clients'),
-      api<{ rate: Rate | null }>('/api/rates/latest'),
+      api<{ clients: ClientSummary[] }>('clients', { query: { action: 'list' } }),
+      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
     ]);
     setClients(data.clients);
     setRate(r.rate);
@@ -50,9 +51,10 @@ export default function Dashboard() {
     setError('');
     setBusy(true);
     try {
-      const res = await api<{ client: { id: number } }>('/api/clients', {
+      const res = await api<{ client: { id: number } }>('clients', {
         method: 'POST',
-        body: JSON.stringify({ name, phone, notes }),
+        query: { action: 'create' },
+        body: { name, phone, notes },
       });
       setShowForm(false);
       setName('');
@@ -74,12 +76,23 @@ export default function Dashboard() {
           Clientes
         </h1>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <a
-            href="/api/export/csv"
-            className="flex-1 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center text-sm font-medium text-slate-700 hover:bg-slate-100 sm:flex-none"
+          <button
+            type="button"
+            onClick={async () => {
+              setExporting(true);
+              try {
+                await downloadExport({ action: 'summary' }, 'resumen-cuentas.csv');
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'No se pudo exportar.');
+              } finally {
+                setExporting(false);
+              }
+            }}
+            disabled={exporting}
+            className="flex-1 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 sm:flex-none"
           >
-            Exportar
-          </a>
+            {exporting ? 'Exportando…' : 'Exportar'}
+          </button>
           <button
             onClick={() => setShowForm(true)}
             className="flex-1 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2.5 text-center text-sm font-medium text-white hover:bg-slate-700 sm:flex-none"
@@ -126,6 +139,10 @@ export default function Dashboard() {
           className="w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
         />
       </div>
+
+      {error && !showForm && (
+        <p className="mt-3 text-sm text-red-600">{error}</p>
+      )}
 
       {filtered.length === 0 && (
         <p className="mt-6 text-center text-slate-500">
