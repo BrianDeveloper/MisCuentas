@@ -8,6 +8,7 @@ export interface BcvRate {
 
 const HOME_URL = 'https://www.bcv.org.ve/';
 const COTIZACION_URL = 'https://www.bcv.org.ve/cotizacion';
+const DOLAR_API_URL = 'https://ve.dolarapi.com/v1/dolares/oficial';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -74,9 +75,40 @@ async function fetchPage(url: string): Promise<string | null> {
       },
       signal: AbortSignal.timeout(25000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error('[bcv]', url, 'HTTP', res.status);
+      return null;
+    }
     return await res.text();
-  } catch {
+  } catch (err) {
+    console.error('[bcv]', url, (err as Error).name, (err as Error).message);
+    return null;
+  }
+}
+
+async function fetchDolarApi(): Promise<BcvRate | null> {
+  try {
+    const res = await fetch(DOLAR_API_URL, {
+      headers: { 'User-Agent': UA },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.error('[bcv]', DOLAR_API_URL, 'HTTP', res.status);
+      return null;
+    }
+    const data = (await res.json().catch(() => null)) as {
+      promedio?: unknown;
+      fechaActualizacion?: unknown;
+    } | null;
+    const usd_ves = typeof data?.promedio === 'number' && data.promedio > 0 ? data.promedio : null;
+    if (!usd_ves) return null;
+    const date = typeof data?.fechaActualizacion === 'string'
+      ? data.fechaActualizacion.slice(0, 10)
+      : '';
+    if (!DATE_RE.test(date)) return null;
+    return { usd_ves, eur_ves: 0, date };
+  } catch (err) {
+    console.error('[bcv]', DOLAR_API_URL, (err as Error).name, (err as Error).message);
     return null;
   }
 }
@@ -92,6 +124,8 @@ export async function fetchBcvToday(today: () => string): Promise<BcvRate | null
     const parsed = parseBcvHtml(cotizacion, today);
     if (parsed && parsed.date) return parsed;
   }
+  const dolarApi = await fetchDolarApi();
+  if (dolarApi) return dolarApi;
   return null;
 }
 

@@ -40,12 +40,11 @@ export default function ClientDetail() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [d, r] = await Promise.all([
-      api<Detail>('clients', { query: { action: 'get', id: clientId } }),
-      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
-    ]);
-    setData(d);
-    setRate(r.rate);
+    const d = await api<Detail & { rate: Rate | null }>('clients', {
+      query: { action: 'get', id: clientId },
+    });
+    setData({ client: d.client, movements: d.movements });
+    setRate(d.rate);
   }, [clientId]);
 
   useEffect(() => {

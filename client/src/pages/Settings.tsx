@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import Layout from '../components/Layout';
 import { api, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
+import { invalidateSettings } from '../lib/settings';
 import type { PagoMovilConfig } from '../lib/whatsapp';
 
 export default function Settings() {
@@ -216,6 +217,7 @@ export default function Settings() {
       setQrPreview(null);
       setPagoMsg('Datos de pago móvil guardados.');
       setPagoMsgType('ok');
+      invalidateSettings();
     } catch (err) {
       setPagoMsg(err instanceof Error ? err.message : 'Error al guardar el pago móvil.');
       setPagoMsgType('err');
@@ -236,6 +238,7 @@ export default function Settings() {
       setQrFile(null);
       setPagoMsg(q.hasQr ? 'No se pudo quitar el QR.' : 'QR eliminado.');
       setPagoMsgType('ok');
+      invalidateSettings();
     } catch (err) {
       setPagoMsg(err instanceof Error ? err.message : 'Error al quitar el QR.');
       setPagoMsgType('err');
@@ -260,6 +263,7 @@ export default function Settings() {
         setWMsg,
         setWMsgType,
       );
+      invalidateSettings();
     } catch (err) {
       notify(
         err instanceof Error ? err.message : 'Error al guardar el servidor de WhatsApp.',

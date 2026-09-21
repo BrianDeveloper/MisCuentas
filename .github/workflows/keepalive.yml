@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  ping:
+  ping-worker:
     runs-on: ubuntu-latest
     steps:
       - name: Pinger al worker (evita el sleep de Render Free)
@@ -24,3 +24,22 @@ jobs:
           fi
         env:
           WORKER_URL: ${{ vars.WORKER_URL }}
+
+  warm-functions:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        fn: [rates, clients, settings, qr, auth]
+    env:
+      # Sin sesion, las funciones responden 401 pero la instancia queda caliente.
+      FUN_URL: https://adelljptewdngtnljohu.supabase.co/functions/v1/${{ matrix.fn }}
+    steps:
+      - name: Ping a la edge function (${{ matrix.fn }})
+        shell: bash
+        run: |
+          CODE="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "$FUN_URL")"
+          echo "${{ matrix.fn }} -> $CODE"
+          if [ "$CODE" = "200" ]; then
+            echo "la funcion respondio 200 sin auth (no deberia)"
+            exit 1
+          fi

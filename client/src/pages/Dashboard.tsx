@@ -18,12 +18,12 @@ export default function Dashboard() {
   const [exporting, setExporting] = useState(false);
 
   const load = async () => {
-    const [data, r] = await Promise.all([
-      api<{ clients: ClientSummary[] }>('clients', { query: { action: 'list' } }),
-      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
-    ]);
+    const data = await api<{ clients: ClientSummary[]; rate: Rate | null }>(
+      'clients',
+      { query: { action: 'list' } },
+    );
     setClients(data.clients);
-    setRate(r.rate);
+    setRate(data.rate);
   };
 
   useEffect(() => {

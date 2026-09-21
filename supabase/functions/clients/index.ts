@@ -5,6 +5,7 @@ import {
   computeMovement,
   ensureMovementRate,
   getClientDetail,
+  getLatestRate,
   listClients,
   runBalance,
   todayLocal,
@@ -27,7 +28,10 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === 'GET') {
       if (action === 'list') {
-        return json({ clients: await listClients() });
+        return json({
+          clients: await listClients(),
+          rate: await getLatestRate(),
+        });
       }
       if (action === 'get') {
         const id = Number(url.searchParams.get('id'));
@@ -35,7 +39,11 @@ Deno.serve(async (req: Request) => {
         if (!client) {
           return json({ error: 'Cliente no encontrado' }, 404);
         }
-        return json({ client, movements });
+        return json({
+          client,
+          movements,
+          rate: await getLatestRate(),
+        });
       }
       if (action === 'recent') {
         const raw = Number(url.searchParams.get('limit') ?? 10);
