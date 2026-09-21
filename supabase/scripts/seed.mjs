@@ -38,9 +38,10 @@ const headers = {
 };
 
 function rest(pathname, { method = 'GET', body } = {}) {
+  const prefer = method === 'POST' ? { Prefer: 'return=representation' } : {};
   return fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
     method,
-    headers,
+    headers: { ...headers, ...prefer },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
@@ -79,28 +80,28 @@ async function main() {
 
   if (!DRY_RUN) {
     // 1) bucket público qr
-    const bucketRes = await fetch(`${SUPABASE_URL}/storage/v1/buckets`, {
+    const bucketRes = await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ id: 'qr', name: 'qr', public: true }),
     });
-    if (!bucketRes.ok && bucketRes.status !== 409) {
+    if (!bucketRes.ok && bucketRes.status !== 400) {
       throw new Error(`Crear bucket -> ${bucketRes.status}`);
     }
     console.log('Bucket "qr" listo (público).');
     console.log('   (Ignora el error si el bucket ya existía.)');
 
     // 2) limpiar destino (orden seguro por FKs)
-    await jsonOrThrow('movements?limit=50000', { method: 'DELETE' });
-    await jsonOrThrow('clients?limit=50000', { method: 'DELETE' });
-    await jsonOrThrow('rates?limit=50000', { method: 'DELETE' });
-    await jsonOrThrow('app_settings?limit=50000', { method: 'DELETE' });
-    await jsonOrThrow('app_sessions?limit=50000', { method: 'DELETE' });
+    await jsonOrThrow('movements?id=gte.0', { method: 'DELETE' });
+    await jsonOrThrow('clients?id=gte.0', { method: 'DELETE' });
+    await jsonOrThrow('rates?date=not.is.null', { method: 'DELETE' });
+    await jsonOrThrow('app_settings?key=not.is.null', { method: 'DELETE' });
+    await jsonOrThrow('app_sessions?token=not.is.null', { method: 'DELETE' });
 
     // 3) clients (los ids los genera el SERIAL; remapeo)
     const idMap = new Map();
     for (const c of clients) {
-      const { data } = await jsonOrThrow('clients', {
+      const created = await jsonOrThrow('clients', {
         method: 'POST',
         body: {
           name: c.name,
@@ -109,10 +110,10 @@ async function main() {
           created_at: c.created_at,
         },
       });
-      const created = Array.isArray(data) ? data[0] : data;
-      if (!created?.id) throw new Error('No se pudo crear el cliente.');
-      idMap.set(Number(c.id), Number(created.id));
-      console.log(`  cliente ${c.id} -> ${created.id} (${c.name})`);
+      const row = Array.isArray(created) ? created[0] : created;
+      if (!row?.id) throw new Error(`No se pudo crear el cliente ${c.name}: ${JSON.stringify(created)}`);
+      idMap.set(Number(c.id), Number(row.id));
+      console.log(`  cliente ${c.id} -> ${row.id} (${c.name})`);
     }
 
     // 4) movements

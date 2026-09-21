@@ -1,7 +1,7 @@
 import { supabase } from './db.ts';
 
 const SESSION_DAYS = 30;
-const scrypt = await import('npm:scrypt-js@0.8.18');
+const scrypt = (await import('npm:scrypt-js@3.0.1')).default;
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)
