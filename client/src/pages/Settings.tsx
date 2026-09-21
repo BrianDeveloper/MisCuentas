@@ -3,8 +3,9 @@ import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
 import { api, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
-import { invalidateClientData } from '../lib/cache';
+import { invalidateClientData, invalidateRate } from '../lib/cache';
 import { invalidateSettings } from '../lib/settings';
+import { useRate } from '../lib/useRate';
 import { useToast } from '../lib/toast';
 import {
   DEFAULT_BALANCE_TEMPLATE,
@@ -94,8 +95,8 @@ function SubmitBtn({
 
 export default function Settings() {
   const { toast } = useToast();
+  const { rate, refresh: refreshRate } = useRate();
 
-  const [rate, setRate] = useState<Rate | null>(null);
   const [history, setHistory] = useState<Rate[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -146,12 +147,10 @@ export default function Settings() {
   };
 
   const load = async () => {
-    const [r, h, p] = await Promise.all([
-      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
+    const [h, p] = await Promise.all([
       api<{ history: Rate[] }>('rates', { query: { action: 'history', limit: 15 } }),
       api<{ pago: PagoMovilConfig | null; whatsappBaseUrl: string; whatsappToken: string; msgReminder: string; msgPago: string }>('settings'),
     ]);
-    setRate(r.rate);
     setHistory(h.history);
     setWUrl(p.whatsappBaseUrl ?? '');
     setWToken(p.whatsappToken ?? '');
@@ -177,7 +176,7 @@ export default function Settings() {
         method: 'POST',
         query: { action: 'refresh' },
       });
-      setRate(r.rate);
+      await refreshRate();
       toast(
         r.rate
           ? `Tasa actualizada: ${fmtNum(r.rate.usd_ves)} Bs/USD (${r.rate.date})`
@@ -185,6 +184,7 @@ export default function Settings() {
         'ok',
       );
       invalidateClientData();
+      invalidateRate();
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error al consultar el BCV.', 'err');
@@ -211,6 +211,7 @@ export default function Settings() {
         'ok',
       );
       invalidateClientData();
+      invalidateRate();
       setMUsdVes('');
       await load();
     } catch (err) {

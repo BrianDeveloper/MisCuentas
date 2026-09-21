@@ -1,6 +1,33 @@
 export const CACHE_TTL_MS = 20_000;
+export const RATE_TTL_MS = 300_000;
 
 const store = new Map<string, { value: unknown; at: number }>();
+const listeners = new Map<string, Set<() => void>>();
+
+function emit(key: string): void {
+  const set = listeners.get(key);
+  if (!set) return;
+  for (const fn of set) {
+    try {
+      fn();
+    } catch {
+      /* un listener no debe tumbar a los demás */
+    }
+  }
+}
+
+export function subscribeCache(key: string, fn: () => void): () => void {
+  let set = listeners.get(key);
+  if (!set) {
+    set = new Set();
+    listeners.set(key, set);
+  }
+  set.add(fn);
+  return () => {
+    set.delete(fn);
+    if (set.size === 0) listeners.delete(key);
+  };
+}
 
 export interface CacheEntry<T> {
   value: T;
@@ -22,14 +49,17 @@ export function cacheGet<T>(key: string): T | undefined {
 
 export function cacheSet(key: string, value: unknown): void {
   store.set(key, { value, at: Date.now() });
+  emit(key);
 }
 
 export function cacheClear(key: string): void {
   store.delete(key);
+  emit(key);
 }
 
 export function cacheClearAll(): void {
   store.clear();
+  for (const key of listeners.keys()) emit(key);
 }
 
 export function invalidateClientData(): void {
@@ -38,4 +68,8 @@ export function invalidateClientData(): void {
   for (const key of store.keys()) {
     if (key.startsWith('client:')) store.delete(key);
   }
+}
+
+export function invalidateRate(): void {
+  cacheClear('rate');
 }

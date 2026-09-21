@@ -1,18 +1,12 @@
 import { type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { useEffect, useState } from 'react';
-import { api, type Rate } from '../lib/api';
 import { fmtNum } from '../lib/format';
+import { useRate } from '../lib/useRate';
 import RateConverter from './RateConverter';
 
 function RatePill() {
-  const [rate, setRate] = useState<Rate | null>(null);
-  useEffect(() => {
-    api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } })
-      .then((r) => setRate(r.rate))
-      .catch(() => {});
-  }, []);
+  const { rate } = useRate();
   if (!rate) return null;
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-emerald-300">

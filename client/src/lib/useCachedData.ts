@@ -1,22 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CACHE_TTL_MS, cachePeek, cacheSet } from './cache';
+import {
+  CACHE_TTL_MS,
+  cachePeek,
+  cacheSet,
+  subscribeCache,
+} from './cache';
+
+export interface UseCachedDataOptions {
+  onError?: (err: unknown) => void;
+  ttlMs?: number;
+}
 
 export function useCachedData<T>(
   key: string,
   loader: () => Promise<T>,
-  opts?: { onError?: (err: unknown) => void },
+  opts: UseCachedDataOptions = {},
 ): { data: T | undefined; refresh: () => Promise<T> } {
+  const ttlMs = opts.ttlMs ?? CACHE_TTL_MS;
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
-  const onErrorRef = useRef(opts?.onError);
-  onErrorRef.current = opts?.onError;
+  const onErrorRef = useRef(opts.onError);
+  onErrorRef.current = opts.onError;
 
   const [data, setData] = useState<T | undefined>(() => cachePeek<T>(key)?.value);
 
   useEffect(() => {
     const entry = cachePeek<T>(key);
     setData(entry?.value);
-    if (entry && Date.now() - entry.at <= CACHE_TTL_MS) return;
+    if (entry && Date.now() - entry.at <= ttlMs) return;
     let alive = true;
     loaderRef
       .current()
@@ -31,7 +42,25 @@ export function useCachedData<T>(
     return () => {
       alive = false;
     };
-  }, [key]);
+  }, [key, ttlMs]);
+
+  useEffect(() => {
+    return subscribeCache(key, () => {
+      const entry = cachePeek<T>(key);
+      if (!entry) return;
+      if (Date.now() - entry.at <= ttlMs) {
+        setData(entry.value);
+      } else {
+        loaderRef
+          .current()
+          .then((fresh) => {
+            cacheSet(key, fresh);
+            setData(fresh);
+          })
+          .catch(() => {});
+      }
+    });
+  }, [key, ttlMs]);
 
   const refresh = useCallback(async () => {
     const fresh = await loaderRef.current();

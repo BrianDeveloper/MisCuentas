@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, type Rate } from '../lib/api';
+import { useState } from 'react';
 import { fmtDate, fmtNum } from '../lib/format';
+import { useRate } from '../lib/useRate';
 
 type Cur = 'USD' | 'EUR' | 'BS';
 
@@ -33,27 +33,10 @@ function convertVal(
 
 export default function RateConverter() {
   const [open, setOpen] = useState(false);
-  const [rate, setRate] = useState<Rate | null>(null);
-  const [busy, setBusy] = useState(true);
   const [from, setFrom] = useState<Cur>('USD');
   const [to, setTo] = useState<Cur>('BS');
   const [amount, setAmount] = useState('100');
-
-  const load = useCallback(() => {
-    setBusy(true);
-    api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } })
-      .then((r) => setRate(r.rate))
-      .catch(() => {})
-      .finally(() => setBusy(false));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (open) load();
-  }, [open, load]);
+  const { rate } = useRate();
 
   const usd = rate?.usd_ves ?? 0;
   const eur = rate?.eur_ves ?? 0;
@@ -102,7 +85,7 @@ export default function RateConverter() {
             {eur > 0 ? ` · 1 EUR = ${fmtNum(eur)} Bs` : ''}
           </div>
 
-          {busy ? (
+          {usd <= 0 ? (
             <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
               Cargando tasa…
@@ -115,8 +98,7 @@ export default function RateConverter() {
                   <select
                     value={from}
                     onChange={(e) => setFrom(e.target.value as Cur)}
-                    disabled={usd <= 0}
-                    className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm disabled:opacity-50"
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm"
                   >
                     {(['USD', 'EUR', 'BS'] as Cur[])
                       .filter((c) => c !== to)
@@ -134,9 +116,8 @@ export default function RateConverter() {
                     inputMode="decimal"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    disabled={usd <= 0}
                     placeholder="0.00"
-                    className="rounded-lg border border-slate-300 px-2 py-2 text-sm disabled:opacity-50"
+                    className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
                   />
                 </label>
               </div>
@@ -170,8 +151,7 @@ export default function RateConverter() {
                 <select
                   value={to}
                   onChange={(e) => setTo(e.target.value as Cur)}
-                  disabled={usd <= 0}
-                  className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm disabled:opacity-50"
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm"
                 >
                   {(['USD', 'EUR', 'BS'] as Cur[])
                     .filter((c) => c !== from)
@@ -209,23 +189,13 @@ export default function RateConverter() {
         aria-expanded={open}
         className="relative flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-600/40 transition-all duration-200 hover:scale-110 hover:bg-emerald-500 active:scale-95"
       >
-        {!busy && (
-          <span
-            className={`absolute inset-0 rounded-full bg-emerald-500 ${
-              open ? '' : 'animate-conv-ping-soft'
-            }`}
-            aria-hidden="true"
-          />
-        )}
         <svg
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
           viewBox="0 0 24 24"
           strokeWidth="1.8"
           stroke="currentColor"
-          className={`h-7 w-7 transition-transform duration-300 ${
-            open ? 'rotate-180' : 'animate-conv-float'
-          }`}
+          className={`h-7 w-7 transition-transform duration-300 ${open ? 'rotate-180' : 'animate-conv-float'}`}
           aria-hidden="true"
         >
           <path
