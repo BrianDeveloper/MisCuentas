@@ -1,17 +1,37 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
 import { api, downloadExport, type ClientSummary, type Rate } from '../lib/api';
 import { fmtBs, fmtUsd } from '../lib/format';
+import { invalidateClientData } from '../lib/cache';
 import { useToast } from '../lib/toast';
+import { useCachedData } from '../lib/useCachedData';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [clients, setClients] = useState<ClientSummary[]>([]);
-  const [rate, setRate] = useState<Rate | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, refresh } = useCachedData<{
+    clients: ClientSummary[];
+    rate: Rate | null;
+  }>(
+    'clients',
+    () =>
+      api<{ clients: ClientSummary[]; rate: Rate | null }>('clients', {
+        query: { action: 'list' },
+      }),
+    {
+      onError: (err) => {
+        toast(
+          err instanceof Error ? err.message : 'No se pudieron cargar los clientes.',
+          'err',
+        );
+      },
+    },
+  );
+  const clients = data?.clients ?? [];
+  const rate = data?.rate ?? null;
+  const loading = data === undefined;
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -19,26 +39,6 @@ export default function Dashboard() {
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data = await api<{ clients: ClientSummary[]; rate: Rate | null }>(
-        'clients',
-        { query: { action: 'list' } },
-      );
-      setClients(data.clients);
-      setRate(data.rate);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudieron cargar los clientes.', 'err');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -71,7 +71,8 @@ export default function Dashboard() {
       setPhone('');
       setNotes('');
       toast('Cliente creado.', 'ok');
-      await load();
+      invalidateClientData();
+      await refresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
     } finally {

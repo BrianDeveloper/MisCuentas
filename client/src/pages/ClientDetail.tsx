@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
@@ -18,7 +18,9 @@ import {
   fmtUsd,
   todayInput,
 } from '../lib/format';
+import { invalidateClientData } from '../lib/cache';
 import { useToast } from '../lib/toast';
+import { useCachedData } from '../lib/useCachedData';
 
 interface Detail {
   client: Client;
@@ -31,8 +33,21 @@ export default function ClientDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [data, setData] = useState<Detail | null>(null);
-  const [rate, setRate] = useState<Rate | null>(null);
+  const { data, refresh } = useCachedData<Detail & { rate: Rate | null }>(
+    `client:${clientId}`,
+    () =>
+      api<Detail & { rate: Rate | null }>('clients', {
+        query: { action: 'get', id: clientId },
+      }),
+    {
+      onError: (err) => {
+        toast(
+          err instanceof Error ? err.message : 'No se pudo cargar el cliente.',
+          'err',
+        );
+      },
+    },
+  );
   const [error, setError] = useState('');
 
   const [mType, setMType] = useState<'deuda' | 'abono'>('deuda');
@@ -43,22 +58,6 @@ export default function ClientDetail() {
   const [busy, setBusy] = useState(false);
   const [deletingMovId, setDeletingMovId] = useState<number | null>(null);
   const [deletingClient, setDeletingClient] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const d = await api<Detail & { rate: Rate | null }>('clients', {
-        query: { action: 'get', id: clientId },
-      });
-      setData({ client: d.client, movements: d.movements });
-      setRate(d.rate);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudo cargar el cliente.', 'err');
-    }
-  }, [clientId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   if (!data) {
     return (
@@ -71,6 +70,7 @@ export default function ClientDetail() {
   }
 
   const { client, movements } = data;
+  const rate = data.rate;
   const balanceBs = movements.reduce(
     (acc, m) => acc + (m.type === 'deuda' ? m.amount_bs : -m.amount_bs),
     0,
@@ -108,7 +108,8 @@ export default function ClientDetail() {
       setMAmount('');
       setMConcept('');
       toast('Movimiento guardado.', 'ok');
-      await load();
+      invalidateClientData();
+      await refresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
     } finally {
@@ -126,7 +127,8 @@ export default function ClientDetail() {
         query: { action: 'movement-delete', id: movementId },
       });
       toast('Movimiento eliminado.', 'ok');
-      await load();
+      invalidateClientData();
+      await refresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
     } finally {
@@ -149,6 +151,7 @@ export default function ClientDetail() {
         query: { action: 'delete', id: clientId },
       });
       toast('Cliente eliminado.', 'ok');
+      invalidateClientData();
       navigate('/clients');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error inesperado', 'err');

@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
 import { api, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
+import { invalidateClientData } from '../lib/cache';
 import { invalidateSettings } from '../lib/settings';
 import { useToast } from '../lib/toast';
 import {
@@ -183,6 +184,7 @@ export default function Settings() {
           : 'No se encontró una tasa nueva.',
         'ok',
       );
+      invalidateClientData();
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error al consultar el BCV.', 'err');
@@ -208,6 +210,7 @@ export default function Settings() {
           : 'Tasa guardada.',
         'ok',
       );
+      invalidateClientData();
       setMUsdVes('');
       await load();
     } catch (err) {

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
 import { api, type ClientSummary, type Rate, type RecentMovement } from '../lib/api';
 import { fmtBs, fmtDate, fmtNum, fmtUsd } from '../lib/format';
 import { useToast } from '../lib/toast';
+import { useCachedData } from '../lib/useCachedData';
 
 interface HomeData {
   clients: ClientSummary[];
@@ -15,16 +16,18 @@ interface HomeData {
 export default function Home() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [data, setData] = useState<HomeData | null>(null);
-
-  useEffect(() => {
-    api<HomeData>('clients', { query: { action: 'home', limit: 10 } })
-      .then((d) => setData(d))
-      .catch((err) => {
-        toast(err instanceof Error ? err.message : 'No se pudieron cargar los datos.', 'err');
-        setData({ clients: [], rate: null, movements: [] });
-      });
-  }, []);
+  const { data } = useCachedData<HomeData>(
+    'home',
+    () => api<HomeData>('clients', { query: { action: 'home', limit: 10 } }),
+    {
+      onError: (err) => {
+        toast(
+          err instanceof Error ? err.message : 'No se pudieron cargar los datos.',
+          'err',
+        );
+      },
+    },
+  );
 
   const clients = useMemo(() => (data?.clients ?? []), [data]);
 
