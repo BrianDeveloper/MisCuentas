@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
+import { ToastProvider } from './lib/toast';
 import './index.css';
 import Setup from './pages/Setup';
 import Login from './pages/Login';
@@ -36,11 +37,13 @@ function Shell() {
 
 function App() {
   return (
-    <AuthProvider>
-      <HashRouter>
-        <Shell />
-      </HashRouter>
-    </AuthProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <HashRouter>
+          <Shell />
+        </HashRouter>
+      </AuthProvider>
+    </ToastProvider>
   );
 }
 

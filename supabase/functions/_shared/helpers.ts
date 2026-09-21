@@ -184,6 +184,38 @@ export async function listClients(): Promise<Array<{
   });
 }
 
+export async function recentMovements(limit: number): Promise<Array<ClientMovement & {
+  client_name: string;
+  client_phone: string;
+}>> {
+  const { data } = await supabase
+    .from('movements')
+    .select(
+      'id, client_id, type, currency, amount, rate_bs, amount_usd, amount_bs, concept, date, created_at, clients(name, phone)',
+    )
+    .order('date', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit);
+  return ((data ?? []) as ClientMovement[]).map((m) => {
+    const c = m.clients as unknown as { name: string; phone: string } | null;
+    return {
+      id: m.id,
+      client_id: m.client_id,
+      type: m.type,
+      currency: m.currency,
+      amount: m.amount,
+      rate_bs: m.rate_bs,
+      amount_usd: m.amount_usd,
+      amount_bs: m.amount_bs,
+      concept: m.concept,
+      date: m.date,
+      created_at: m.created_at,
+      client_name: c?.name ?? '',
+      client_phone: c?.phone ?? '',
+    };
+  });
+}
+
 export async function getClientDetail(clientId: number): Promise<{
   client: Client | null;
   movements: Array<ClientMovement & { saldo_usd: number; saldo_bs: number }>;

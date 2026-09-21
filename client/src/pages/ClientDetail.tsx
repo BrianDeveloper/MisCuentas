@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
+import Spinner from '../components/Spinner';
 import WhatsAppButton from '../components/WhatsAppButton';
 import PagoMovilButton from '../components/PagoMovilButton';
 import {
@@ -17,6 +18,7 @@ import {
   fmtUsd,
   todayInput,
 } from '../lib/format';
+import { useToast } from '../lib/toast';
 
 interface Detail {
   client: Client;
@@ -27,6 +29,7 @@ export default function ClientDetail() {
   const { id } = useParams();
   const clientId = Number(id);
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const [data, setData] = useState<Detail | null>(null);
   const [rate, setRate] = useState<Rate | null>(null);
@@ -38,23 +41,31 @@ export default function ClientDetail() {
   const [mDate, setMDate] = useState(todayInput());
   const [mConcept, setMConcept] = useState('');
   const [busy, setBusy] = useState(false);
+  const [deletingMovId, setDeletingMovId] = useState<number | null>(null);
+  const [deletingClient, setDeletingClient] = useState(false);
 
   const load = useCallback(async () => {
-    const d = await api<Detail & { rate: Rate | null }>('clients', {
-      query: { action: 'get', id: clientId },
-    });
-    setData({ client: d.client, movements: d.movements });
-    setRate(d.rate);
+    try {
+      const d = await api<Detail & { rate: Rate | null }>('clients', {
+        query: { action: 'get', id: clientId },
+      });
+      setData({ client: d.client, movements: d.movements });
+      setRate(d.rate);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo cargar el cliente.', 'err');
+    }
   }, [clientId]);
 
   useEffect(() => {
-    load().catch(() => {});
+    void load();
   }, [load]);
 
   if (!data) {
     return (
       <Layout>
-        <p className="text-slate-500">Cargando…</p>
+        <div className="flex items-center gap-2 text-slate-500">
+          <Spinner /> Cargando…
+        </div>
       </Layout>
     );
   }
@@ -73,6 +84,7 @@ export default function ClientDetail() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setError('');
     const amount = parseFloat(mAmount.replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -95,42 +107,52 @@ export default function ClientDetail() {
       });
       setMAmount('');
       setMConcept('');
+      toast('Movimiento guardado.', 'ok');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado');
+      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
     } finally {
       setBusy(false);
     }
   };
 
   const removeMovement = async (movementId: number) => {
+    if (deletingMovId !== null) return;
     if (!window.confirm('¿Eliminar este movimiento?')) return;
+    setDeletingMovId(movementId);
     try {
       await api('clients', {
         method: 'DELETE',
         query: { action: 'movement-delete', id: movementId },
       });
+      toast('Movimiento eliminado.', 'ok');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado');
+      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+    } finally {
+      setDeletingMovId(null);
     }
   };
 
   const deleteClient = async () => {
+    if (deletingClient) return;
     if (
       !window.confirm(
         `¿Eliminar a "${client.name}" y todo su historial? Esta acción no se puede deshacer.`,
       )
     )
       return;
+    setDeletingClient(true);
     try {
       await api('clients', {
         method: 'DELETE',
         query: { action: 'delete', id: clientId },
       });
+      toast('Cliente eliminado.', 'ok');
       navigate('/clients');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado');
+      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+      setDeletingClient(false);
     }
   };
 
@@ -169,9 +191,11 @@ export default function ClientDetail() {
           />
           <button
             onClick={deleteClient}
-            className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+            disabled={deletingClient}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
           >
-            Eliminar
+            {deletingClient && <Spinner />}
+            {deletingClient ? 'Eliminando…' : 'Eliminar'}
           </button>
         </div>
       </div>
@@ -304,9 +328,13 @@ export default function ClientDetail() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-5 w-full rounded-lg bg-slate-900 py-2.5 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            onClick={(e) => {
+              if (busy) e.preventDefault();
+            }}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 font-medium text-white hover:bg-slate-700 disabled:opacity-60"
           >
-            Guardar movimiento
+            {busy && <Spinner />}
+            {busy ? 'Guardando…' : 'Guardar movimiento'}
           </button>
         </form>
 
@@ -371,9 +399,10 @@ export default function ClientDetail() {
                   <span>tasa {fmtNum(m.rate_bs)} Bs/USD</span>
                   <button
                     onClick={() => removeMovement(m.id)}
-                    className="font-medium text-slate-400 hover:text-red-600"
+                    disabled={deletingMovId !== null}
+                    className="font-medium text-slate-400 hover:text-red-600 disabled:opacity-60"
                   >
-                    Eliminar
+                    {deletingMovId === m.id ? 'Eliminando…' : 'Eliminar'}
                   </button>
                 </div>
               </div>
@@ -443,10 +472,11 @@ export default function ClientDetail() {
                     <td className="px-2 py-2 text-right">
                       <button
                         onClick={() => removeMovement(m.id)}
-                        className="text-xs text-slate-400 hover:text-red-600"
+                        disabled={deletingMovId !== null}
+                        className="text-xs text-slate-400 hover:text-red-600 disabled:opacity-60"
                         title="Eliminar movimiento"
                       >
-                        ✕
+                        {deletingMovId === m.id ? '…' : '✕'}
                       </button>
                     </td>
                   </tr>

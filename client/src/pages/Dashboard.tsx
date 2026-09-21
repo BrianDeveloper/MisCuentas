@@ -1,33 +1,43 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import Spinner from '../components/Spinner';
 import { api, downloadExport, type ClientSummary, type Rate } from '../lib/api';
 import { fmtBs, fmtUsd } from '../lib/format';
+import { useToast } from '../lib/toast';
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [rate, setRate] = useState<Rate | null>(null);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
-  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const load = async () => {
-    const data = await api<{ clients: ClientSummary[]; rate: Rate | null }>(
-      'clients',
-      { query: { action: 'list' } },
-    );
-    setClients(data.clients);
-    setRate(data.rate);
+    setLoading(true);
+    try {
+      const data = await api<{ clients: ClientSummary[]; rate: Rate | null }>(
+        'clients',
+        { query: { action: 'list' } },
+      );
+      setClients(data.clients);
+      setRate(data.rate);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudieron cargar los clientes.', 'err');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    load().catch(() => {});
+    void load();
   }, []);
 
   const filtered = useMemo(() => {
@@ -48,10 +58,10 @@ export default function Dashboard() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
+    if (busy) return;
     setBusy(true);
     try {
-      const res = await api<{ client: { id: number } }>('clients', {
+      await api<{ client: { id: number } }>('clients', {
         method: 'POST',
         query: { action: 'create' },
         body: { name, phone, notes },
@@ -60,11 +70,25 @@ export default function Dashboard() {
       setName('');
       setPhone('');
       setNotes('');
-      navigate(`/clients/${res.client.id}`);
+      toast('Cliente creado.', 'ok');
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado');
+      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const doExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await downloadExport({ action: 'summary' }, 'resumen-cuentas.csv');
+      toast('Resumen exportado.', 'ok');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo exportar.', 'err');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -78,19 +102,11 @@ export default function Dashboard() {
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <button
             type="button"
-            onClick={async () => {
-              setExporting(true);
-              try {
-                await downloadExport({ action: 'summary' }, 'resumen-cuentas.csv');
-              } catch (err) {
-                setError(err instanceof Error ? err.message : 'No se pudo exportar.');
-              } finally {
-                setExporting(false);
-              }
-            }}
+            onClick={doExport}
             disabled={exporting}
-            className="flex-1 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 sm:flex-none"
+            className="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60 sm:flex-none"
           >
+            {exporting && <Spinner />}
             {exporting ? 'Exportando…' : 'Exportar'}
           </button>
           <button
@@ -109,7 +125,7 @@ export default function Dashboard() {
             Total a cobrar (Bs)
           </p>
           <p className="mt-1 break-words text-xl font-bold text-slate-900 sm:text-2xl">
-            {fmtBs(totals.bs)}
+            {loading ? '…' : fmtBs(totals.bs)}
           </p>
         </div>
         <div className="min-w-0 rounded-xl bg-white p-4 shadow">
@@ -117,7 +133,7 @@ export default function Dashboard() {
             Equivalente en $ (hoy)
           </p>
           <p className="mt-1 break-words text-xl font-bold text-slate-900 sm:text-2xl">
-            {totals.usdHoy !== null ? fmtUsd(totals.usdHoy) : '—'}
+            {loading ? '…' : totals.usdHoy !== null ? fmtUsd(totals.usdHoy) : '—'}
           </p>
         </div>
         <div className="min-w-0 rounded-xl bg-white p-4 shadow">
@@ -125,7 +141,7 @@ export default function Dashboard() {
             Clientes
           </p>
           <p className="mt-1 break-words text-xl font-bold text-slate-900 sm:text-2xl">
-            {clients.length}
+            {loading ? '…' : clients.length}
           </p>
         </div>
       </div>
@@ -140,14 +156,16 @@ export default function Dashboard() {
         />
       </div>
 
-      {error && !showForm && (
-        <p className="mt-3 text-sm text-red-600">{error}</p>
-      )}
-
-      {filtered.length === 0 && (
-        <p className="mt-6 text-center text-slate-500">
-          No hay clientes todavía.
-        </p>
+      {loading ? (
+        <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-white p-8 text-sm text-slate-500 shadow">
+          <Spinner /> Cargando clientes…
+        </div>
+      ) : (
+        filtered.length === 0 && (
+          <p className="mt-6 text-center text-slate-500">
+            No hay clientes todavía.
+          </p>
+        )
       )}
 
       {/* Vista móvil: tarjetas */}
@@ -279,7 +297,6 @@ export default function Dashboard() {
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
-            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -291,9 +308,13 @@ export default function Dashboard() {
               <button
                 type="submit"
                 disabled={busy || !name.trim()}
-                className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                onClick={(e) => {
+                  if (busy) e.preventDefault();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
               >
-                Crear
+                {busy && <Spinner />}
+                {busy ? 'Creando…' : 'Crear'}
               </button>
             </div>
           </form>

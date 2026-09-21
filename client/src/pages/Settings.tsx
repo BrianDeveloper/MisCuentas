@@ -1,8 +1,10 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import Layout from '../components/Layout';
+import Spinner from '../components/Spinner';
 import { api, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
 import { invalidateSettings } from '../lib/settings';
+import { useToast } from '../lib/toast';
 import {
   DEFAULT_BALANCE_TEMPLATE,
   DEFAULT_PAGO_TEMPLATE,
@@ -64,22 +66,46 @@ function SectionCard({
   );
 }
 
+function SubmitBtn({
+  busy,
+  busyLabel,
+  label,
+  className,
+}: {
+  busy: boolean;
+  busyLabel: string;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="submit"
+      disabled={busy}
+      className={`inline-flex items-center gap-2 disabled:opacity-60 ${
+        className ?? 'rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700'
+      }`}
+    >
+      {busy && <Spinner />}
+      {busy ? busyLabel : label}
+    </button>
+  );
+}
+
 export default function Settings() {
+  const { toast } = useToast();
+
   const [rate, setRate] = useState<Rate | null>(null);
   const [history, setHistory] = useState<Rate[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [msgType, setMsgType] = useState<'ok' | 'err'>('ok');
 
   const [mDate, setMDate] = useState('');
   const [mUsdVes, setMUsdVes] = useState('');
-  const [manualMsg, setManualMsg] = useState('');
-  const [manualMsgType, setManualMsgType] = useState<'ok' | 'err'>('ok');
+  const [busyManual, setBusyManual] = useState(false);
 
   const [curPin, setCurPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confPin, setConfPin] = useState('');
-  const [pinMsg, setPinMsg] = useState('');
+  const [busyPin, setBusyPin] = useState(false);
 
   const [pago, setPago] = useState<PagoMovilConfig | null>(null);
   const [pBanco, setPBanco] = useState('');
@@ -89,15 +115,12 @@ export default function Settings() {
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
   const [savingPago, setSavingPago] = useState(false);
-  const [pagoMsg, setPagoMsg] = useState('');
-  const [pagoMsgType, setPagoMsgType] = useState<'ok' | 'err'>('ok');
+  const [removingQr, setRemovingQr] = useState(false);
 
   const [wUrl, setWUrl] = useState('');
   const [wToken, setWToken] = useState('');
   const [savingWorker, setSavingWorker] = useState(false);
   const [checkingWorker, setCheckingWorker] = useState(false);
-  const [wMsg, setWMsg] = useState('');
-  const [wMsgType, setWMsgType] = useState<'ok' | 'err'>('ok');
   const [workerStatus, setWorkerStatus] = useState<{ connected: boolean; phone: string | null } | null>(null);
   const [workerQr, setWorkerQr] = useState<string | null>(null);
   const [linkingWorker, setLinkingWorker] = useState(false);
@@ -106,8 +129,6 @@ export default function Settings() {
   const [mReminder, setMReminder] = useState('');
   const [mPago, setMPago] = useState('');
   const [savingMsgs, setSavingMsgs] = useState(false);
-  const [msgsMsg, setMsgsMsg] = useState('');
-  const [msgsMsgType, setMsgsMsgType] = useState<'ok' | 'err'>('ok');
 
   const [openSections, setOpenSections] = useState<Set<SectionId>>(loadOpenSections);
 
@@ -121,11 +142,6 @@ export default function Settings() {
       } catch { /* noop */ }
       return next;
     });
-  };
-
-  const notify = (text: string, type: 'ok' | 'err', setter: (v: string) => void, msetter: (t: 'ok' | 'err') => void) => {
-    setter(text);
-    msetter(type);
   };
 
   const load = async () => {
@@ -155,29 +171,21 @@ export default function Settings() {
 
   const refresh = async () => {
     setRefreshing(true);
-    setMsg('');
     try {
       const r = await api<{ ok: boolean; rate: Rate | null }>('rates', {
         method: 'POST',
         query: { action: 'refresh' },
       });
       setRate(r.rate);
-      notify(
+      toast(
         r.rate
           ? `Tasa actualizada: ${fmtNum(r.rate.usd_ves)} Bs/USD (${r.rate.date})`
           : 'No se encontró una tasa nueva.',
         'ok',
-        setMsg,
-        setMsgType,
       );
       await load();
     } catch (err) {
-      notify(
-        err instanceof Error ? err.message : 'Error al consultar el BCV.',
-        'err',
-        setMsg,
-        setMsgType,
-      );
+      toast(err instanceof Error ? err.message : 'Error al consultar el BCV.', 'err');
     } finally {
       setRefreshing(false);
     }
@@ -185,7 +193,8 @@ export default function Settings() {
 
   const saveManual = async (e: FormEvent) => {
     e.preventDefault();
-    setManualMsg('');
+    if (busyManual) return;
+    setBusyManual(true);
     try {
       const usd_ves = parseFloat(mUsdVes.replace(',', '.'));
       const r = await api<{ ok: boolean; rate: Rate | null }>('rates', {
@@ -193,49 +202,47 @@ export default function Settings() {
         query: { action: 'manual' },
         body: { date: mDate, usd_ves },
       });
-      notify(
+      toast(
         r.rate
           ? `Tasa guardada: ${fmtNum(r.rate.usd_ves)} Bs/USD`
           : 'Tasa guardada.',
         'ok',
-        setManualMsg,
-        setManualMsgType,
       );
       setMUsdVes('');
       await load();
     } catch (err) {
-      notify(
-        err instanceof Error ? err.message : 'Error al guardar la tasa.',
-        'err',
-        setManualMsg,
-        setManualMsgType,
-      );
+      toast(err instanceof Error ? err.message : 'Error al guardar la tasa.', 'err');
+    } finally {
+      setBusyManual(false);
     }
   };
 
   const changePin = async (e: FormEvent) => {
     e.preventDefault();
-    setPinMsg('');
+    if (busyPin) return;
     if (!/^\d{4,6}$/.test(newPin)) {
-      setPinMsg('El nuevo PIN debe tener entre 4 y 6 dígitos.');
+      toast('El nuevo PIN debe tener entre 4 y 6 dígitos.', 'err');
       return;
     }
     if (newPin !== confPin) {
-      setPinMsg('Los PIN no coinciden.');
+      toast('Los PIN no coinciden.', 'err');
       return;
     }
+    setBusyPin(true);
     try {
       await api('auth', {
         method: 'POST',
         query: { action: 'change-pin' },
         body: { current: curPin, next: newPin },
       });
-      setPinMsg('PIN actualizado correctamente.');
+      toast('PIN actualizado correctamente.', 'ok');
       setCurPin('');
       setNewPin('');
       setConfPin('');
     } catch (err) {
-      setPinMsg(err instanceof Error ? err.message : 'Error al cambiar el PIN');
+      toast(err instanceof Error ? err.message : 'Error al cambiar el PIN', 'err');
+    } finally {
+      setBusyPin(false);
     }
   };
 
@@ -253,10 +260,9 @@ export default function Settings() {
 
   const savePagoMovil = async (e: FormEvent) => {
     e.preventDefault();
-    setPagoMsg('');
+    if (savingPago) return;
     if (!pBanco.trim() && !pDocumento.trim() && !pTelefono.trim()) {
-      setPagoMsg('Completa al menos el banco, el documento o el teléfono.');
-      setPagoMsgType('err');
+      toast('Completa al menos el banco, el documento o el teléfono.', 'err');
       return;
     }
     setSavingPago(true);
@@ -296,19 +302,18 @@ export default function Settings() {
       setPago(pagoUpdated);
       setQrFile(null);
       setQrPreview(null);
-      setPagoMsg('Datos de pago móvil guardados.');
-      setPagoMsgType('ok');
+      toast('Datos de pago móvil guardados.', 'ok');
       invalidateSettings();
     } catch (err) {
-      setPagoMsg(err instanceof Error ? err.message : 'Error al guardar el pago móvil.');
-      setPagoMsgType('err');
+      toast(err instanceof Error ? err.message : 'Error al guardar el pago móvil.', 'err');
     } finally {
       setSavingPago(false);
     }
   };
 
   const removeQr = async () => {
-    setPagoMsg('');
+    if (removingQr) return;
+    setRemovingQr(true);
     try {
       const q = await api<{ ok: boolean; hasQr: boolean; qrFile: string }>('qr', {
         method: 'POST',
@@ -317,18 +322,18 @@ export default function Settings() {
       setPago((p) => (p ? { ...p, hasQr: false, qrFile: '', qrUrl: '' } : p));
       setQrPreview(null);
       setQrFile(null);
-      setPagoMsg(q.hasQr ? 'No se pudo quitar el QR.' : 'QR eliminado.');
-      setPagoMsgType('ok');
+      toast(q.hasQr ? 'No se pudo quitar el QR.' : 'QR eliminado.', q.hasQr ? 'err' : 'ok');
       invalidateSettings();
     } catch (err) {
-      setPagoMsg(err instanceof Error ? err.message : 'Error al quitar el QR.');
-      setPagoMsgType('err');
+      toast(err instanceof Error ? err.message : 'Error al quitar el QR.', 'err');
+    } finally {
+      setRemovingQr(false);
     }
   };
 
   const saveWorker = async (e: FormEvent) => {
     e.preventDefault();
-    setWMsg('');
+    if (savingWorker) return;
     setSavingWorker(true);
     try {
       const r = await api<{ ok: boolean; whatsappBaseUrl: string; whatsappToken: string }>('settings', {
@@ -338,19 +343,12 @@ export default function Settings() {
       });
       setWUrl(r.whatsappBaseUrl ?? '');
       setWToken(r.whatsappToken ?? '');
-      notify(
-        'Servidor de WhatsApp guardado.',
-        'ok',
-        setWMsg,
-        setWMsgType,
-      );
+      toast('Servidor de WhatsApp guardado.', 'ok');
       invalidateSettings();
     } catch (err) {
-      notify(
+      toast(
         err instanceof Error ? err.message : 'Error al guardar el servidor de WhatsApp.',
         'err',
-        setWMsg,
-        setWMsgType,
       );
     } finally {
       setSavingWorker(false);
@@ -367,29 +365,27 @@ export default function Settings() {
   const checkWorker = async () => {
     const url = workerBase();
     if (!/^https?:\/\//.test(url)) {
-      notify('Guarda primero la URL del worker.', 'err', setWMsg, setWMsgType);
+      toast('Guarda primero la URL del worker.', 'err');
       return;
     }
+    if (checkingWorker) return;
     setCheckingWorker(true);
-    setWMsg('');
     try {
       const res = await fetch(`${url}/status`);
       const data = (await res.json().catch(() => ({}))) as { connected?: boolean; phone?: string | null };
       if (res.ok) {
         setWorkerStatus({ connected: Boolean(data.connected), phone: data.phone ?? null });
-        notify(
+        toast(
           data.connected
             ? `Worker conectado (${data.phone ?? 'WhatsApp vinculado'}). El botón adjunta QR y envía el mensaje.`
             : 'Worker activo, pero WhatsApp aún no está vinculado. Pulsa «Vincular WhatsApp» y escanea el QR.',
           data.connected ? 'ok' : 'err',
-          setWMsg,
-          setWMsgType,
         );
       } else {
-        notify('El worker respondió con un error. Revisa la URL.', 'err', setWMsg, setWMsgType);
+        toast('El worker respondió con un error. Revisa la URL.', 'err');
       }
     } catch {
-      notify('No se pudo conectar con el worker. Revisa la URL.', 'err', setWMsg, setWMsgType);
+      toast('No se pudo conectar con el worker. Revisa la URL.', 'err');
     } finally {
       setCheckingWorker(false);
     }
@@ -398,11 +394,11 @@ export default function Settings() {
   const linkWorker = async () => {
     const url = workerBase();
     if (!/^https?:\/\//.test(url)) {
-      notify('Guarda primero la URL del worker.', 'err', setWMsg, setWMsgType);
+      toast('Guarda primero la URL del worker.', 'err');
       return;
     }
+    if (linkingWorker) return;
     setLinkingWorker(true);
-    setWMsg('');
     setWorkerQr(null);
     try {
       const res = await fetch(`${url}/link`, {
@@ -413,18 +409,18 @@ export default function Settings() {
       if (res.ok) {
         if (data.connected) {
           setWorkerStatus({ connected: true, phone: null });
-          notify('WhatsApp ya está vinculado.', 'ok', setWMsg, setWMsgType);
+          toast('WhatsApp ya está vinculado.', 'ok');
         } else if (data.hasQr) {
           setWorkerQr(`${url}/qr.png?t=${Date.now()}`);
-          notify('Escanea el QR con tu WhatsApp: Ajustes → Dispositivos vinculados.', 'ok', setWMsg, setWMsgType);
+          toast('Escanea el QR con tu WhatsApp: Ajustes → Dispositivos vinculados.', 'ok');
         } else {
-          notify('El worker no generó un QR ahora. Intenta de nuevo en unos segundos.', 'err', setWMsg, setWMsgType);
+          toast('El worker no generó un QR ahora. Intenta de nuevo en unos segundos.', 'err');
         }
       } else {
-        notify('El worker respondió con un error al vincular.', 'err', setWMsg, setWMsgType);
+        toast('El worker respondió con un error al vincular.', 'err');
       }
     } catch {
-      notify('No se pudo conectar con el worker.', 'err', setWMsg, setWMsgType);
+      toast('No se pudo conectar con el worker.', 'err');
     } finally {
       setLinkingWorker(false);
     }
@@ -432,8 +428,8 @@ export default function Settings() {
 
   const unlinkWorker = async () => {
     const url = workerBase();
+    if (unlinkingWorker) return;
     setUnlinkingWorker(true);
-    setWMsg('');
     try {
       const res = await fetch(`${url}/unlink`, {
         method: 'POST',
@@ -442,12 +438,12 @@ export default function Settings() {
       if (res.ok) {
         setWorkerStatus({ connected: false, phone: null });
         setWorkerQr(null);
-        notify('WhatsApp desvinculado del worker.', 'ok', setWMsg, setWMsgType);
+        toast('WhatsApp desvinculado del worker.', 'ok');
       } else {
-        notify('No se pudo desvincular.', 'err', setWMsg, setWMsgType);
+        toast('No se pudo desvincular.', 'err');
       }
     } catch {
-      notify('No se pudo conectar con el worker.', 'err', setWMsg, setWMsgType);
+      toast('No se pudo conectar con el worker.', 'err');
     } finally {
       setUnlinkingWorker(false);
     }
@@ -455,7 +451,7 @@ export default function Settings() {
 
   const saveMessages = async (e: FormEvent) => {
     e.preventDefault();
-    setMsgsMsg('');
+    if (savingMsgs) return;
     setSavingMsgs(true);
     try {
       const r = await api<{ ok: boolean; msgReminder: string; msgPago: string }>('settings', {
@@ -465,14 +461,12 @@ export default function Settings() {
       });
       setMReminder(r.msgReminder ?? '');
       setMPago(r.msgPago ?? '');
-      notify('Mensajes guardados.', 'ok', setMsgsMsg, setMsgsMsgType);
+      toast('Mensajes guardados.', 'ok');
       invalidateSettings();
     } catch (err) {
-      notify(
+      toast(
         err instanceof Error ? err.message : 'Error al guardar los mensajes.',
         'err',
-        setMsgsMsg,
-        setMsgsMsgType,
       );
     } finally {
       setSavingMsgs(false);
@@ -482,8 +476,7 @@ export default function Settings() {
   const restoreMessages = () => {
     setMReminder(DEFAULT_BALANCE_TEMPLATE);
     setMPago(DEFAULT_PAGO_TEMPLATE);
-    setMsgsMsg('Plantillas por defecto cargadas. Pulsa «Guardar mensajes» para aplicarlas.');
-    setMsgsMsgType('ok');
+    toast('Plantillas por defecto cargadas. Pulsa «Guardar mensajes» para aplicarlas.', 'info');
   };
 
   return (
@@ -512,22 +505,15 @@ export default function Settings() {
 
           <div className="mt-4 flex items-center gap-2">
             <button
+              type="button"
               onClick={refresh}
               disabled={refreshing}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
             >
+              {refreshing && <Spinner />}
               {refreshing ? 'Consultando…' : 'Actualizar desde BCV'}
             </button>
           </div>
-          {msg && (
-            <p
-              className={`mt-3 text-sm ${
-                msgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
-              }`}
-            >
-              {msg}
-            </p>
-          )}
 
           <form onSubmit={saveManual} className="mt-6 border-t border-slate-200 pt-4">
             <h3 className="text-sm font-semibold text-slate-700">
@@ -552,21 +538,12 @@ export default function Settings() {
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <button
-              type="submit"
+            <SubmitBtn
+              busy={busyManual}
+              busyLabel="Guardando…"
+              label="Guardar tasa"
               className="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Guardar tasa
-            </button>
-            {manualMsg && (
-              <p
-                className={`mt-2 text-sm ${
-                  manualMsgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
-                }`}
-              >
-                {manualMsg}
-              </p>
-            )}
+            />
           </form>
 
           {history.length > 0 && (
@@ -658,9 +635,11 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={removeQr}
-                    className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                    disabled={removingQr}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
                   >
-                    Quitar QR
+                    {removingQr && <Spinner />}
+                    {removingQr ? 'Quitando…' : 'Quitar QR'}
                   </button>
                 </div>
               ) : (
@@ -688,22 +667,12 @@ export default function Settings() {
               )}
             </div>
 
-            <button
-              type="submit"
-              disabled={savingPago}
-              className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {savingPago ? 'Guardando…' : 'Guardar pago móvil'}
-            </button>
-            {pagoMsg && (
-              <p
-                className={`text-sm ${
-                  pagoMsgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
-                }`}
-              >
-                {pagoMsg}
-              </p>
-            )}
+            <SubmitBtn
+              busy={savingPago}
+              busyLabel="Guardando…"
+              label="Guardar pago móvil"
+              className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            />
           </form>
         </SectionCard>
 
@@ -735,19 +704,18 @@ export default function Settings() {
               />
             </label>
             <div className="flex items-center gap-2">
-              <button
-                type="submit"
-                disabled={savingWorker}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-              >
-                {savingWorker ? 'Guardando…' : 'Guardar worker'}
-              </button>
+              <SubmitBtn
+                busy={savingWorker}
+                busyLabel="Guardando…"
+                label="Guardar worker"
+              />
               <button
                 type="button"
                 onClick={checkWorker}
                 disabled={checkingWorker || savingWorker}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
               >
+                {checkingWorker && <Spinner />}
                 {checkingWorker ? 'Comprobando…' : 'Comprobar estado'}
               </button>
             </div>
@@ -757,16 +725,18 @@ export default function Settings() {
                 type="button"
                 onClick={linkWorker}
                 disabled={linkingWorker || !workerBase()}
-                className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
               >
+                {linkingWorker && <Spinner />}
                 {linkingWorker ? 'Generando QR…' : workerStatus?.connected ? 'Re-vincular' : 'Vincular WhatsApp'}
               </button>
               <button
                 type="button"
                 onClick={unlinkWorker}
                 disabled={unlinkingWorker || !workerBase()}
-                className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
               >
+                {unlinkingWorker && <Spinner />}
                 {unlinkingWorker ? 'Desvinculando…' : 'Desvincular'}
               </button>
             </div>
@@ -787,15 +757,6 @@ export default function Settings() {
                   Escanéalo con WhatsApp: Ajustes → Dispositivos vinculados → Vincular dispositivo.
                 </p>
               </div>
-            )}
-            {wMsg && (
-              <p
-                className={`text-sm ${
-                  wMsgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
-                }`}
-              >
-                {wMsg}
-              </p>
             )}
           </form>
           <p className="mt-3 text-xs text-slate-400">
@@ -845,13 +806,11 @@ export default function Settings() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="submit"
-                disabled={savingMsgs}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-              >
-                {savingMsgs ? 'Guardando…' : 'Guardar mensajes'}
-              </button>
+              <SubmitBtn
+                busy={savingMsgs}
+                busyLabel="Guardando…"
+                label="Guardar mensajes"
+              />
               <button
                 type="button"
                 onClick={restoreMessages}
@@ -860,15 +819,6 @@ export default function Settings() {
                 Restaurar por defecto
               </button>
             </div>
-            {msgsMsg && (
-              <p
-                className={`text-sm ${
-                  msgsMsgType === 'ok' ? 'text-emerald-600' : 'text-red-600'
-                }`}
-              >
-                {msgsMsg}
-              </p>
-            )}
           </form>
         </SectionCard>
 
@@ -907,15 +857,12 @@ export default function Settings() {
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
-            {pinMsg && (
-              <p className="mt-3 text-sm text-slate-600">{pinMsg}</p>
-            )}
-            <button
-              type="submit"
+            <SubmitBtn
+              busy={busyPin}
+              busyLabel="Guardando…"
+              label="Cambiar PIN"
               className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-            >
-              Cambiar PIN
-            </button>
+            />
           </form>
         </SectionCard>
       </div>

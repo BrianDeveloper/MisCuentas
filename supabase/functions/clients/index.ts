@@ -7,6 +7,7 @@ import {
   getClientDetail,
   getLatestRate,
   listClients,
+  recentMovements,
   runBalance,
   todayLocal,
   type ClientMovement,
@@ -28,21 +29,22 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === 'GET') {
       if (action === 'list') {
-        return json({
-          clients: await listClients(),
-          rate: await getLatestRate(),
-        });
+        const [clients, rate] = await Promise.all([listClients(), getLatestRate()]);
+        return json({ clients, rate });
       }
       if (action === 'get') {
         const id = Number(url.searchParams.get('id'));
-        const { client, movements } = await getClientDetail(id);
-        if (!client) {
+        const [detail, rate] = await Promise.all([
+          getClientDetail(id),
+          getLatestRate(),
+        ]);
+        if (!detail.client) {
           return json({ error: 'Cliente no encontrado' }, 404);
         }
         return json({
-          client,
-          movements,
-          rate: await getLatestRate(),
+          client: detail.client,
+          movements: detail.movements,
+          rate,
         });
       }
       if (action === 'recent') {
@@ -50,33 +52,19 @@ Deno.serve(async (req: Request) => {
         const limit = Number.isFinite(raw)
           ? Math.min(Math.max(Math.floor(raw), 1), 50)
           : 10;
-        const { data } = await supabase
-          .from('movements')
-          .select(
-            'id, client_id, type, currency, amount, rate_bs, amount_usd, amount_bs, concept, date, created_at, clients(name, phone)',
-          )
-          .order('date', { ascending: false })
-          .order('id', { ascending: false })
-          .limit(limit);
-        const movements = (data ?? []).map((m) => {
-          const c = m.clients as unknown as { name: string; phone: string } | null;
-          return {
-            id: m.id,
-            client_id: m.client_id,
-            type: m.type,
-            currency: m.currency,
-            amount: m.amount,
-            rate_bs: m.rate_bs,
-            amount_usd: m.amount_usd,
-            amount_bs: m.amount_bs,
-            concept: m.concept,
-            date: m.date,
-            created_at: m.created_at,
-            client_name: c?.name ?? '',
-            client_phone: c?.phone ?? '',
-          };
-        });
-        return json({ movements });
+        return json({ movements: await recentMovements(limit) });
+      }
+      if (action === 'home') {
+        const raw = Number(url.searchParams.get('limit') ?? 10);
+        const limit = Number.isFinite(raw)
+          ? Math.min(Math.max(Math.floor(raw), 1), 50)
+          : 10;
+        const [clients, rate, movements] = await Promise.all([
+          listClients(),
+          getLatestRate(),
+          recentMovements(limit),
+        ]);
+        return json({ clients, rate, movements });
       }
       return json({ error: 'Acción inválida' }, 400);
     }

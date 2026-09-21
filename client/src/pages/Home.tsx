@@ -1,36 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
+import Spinner from '../components/Spinner';
 import { api, type ClientSummary, type Rate, type RecentMovement } from '../lib/api';
 import { fmtBs, fmtDate, fmtNum, fmtUsd } from '../lib/format';
+import { useToast } from '../lib/toast';
+
+interface HomeData {
+  clients: ClientSummary[];
+  rate: Rate | null;
+  movements: RecentMovement[];
+}
 
 export default function Home() {
   const navigate = useNavigate();
-  const [clients, setClients] = useState<ClientSummary[]>([]);
-  const [rate, setRate] = useState<Rate | null>(null);
-  const [recent, setRecent] = useState<RecentMovement[]>([]);
+  const { toast } = useToast();
+  const [data, setData] = useState<HomeData | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      api<{ clients: ClientSummary[] }>('clients', { query: { action: 'list' } }),
-      api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
-      api<{ movements: RecentMovement[] }>('clients', {
-        query: { action: 'recent', limit: 10 },
-      }),
-    ])
-      .then(([c, r, m]) => {
-        setClients(c.clients);
-        setRate(r.rate);
-        setRecent(m.movements);
-      })
-      .catch(() => {});
+    api<HomeData>('clients', { query: { action: 'home', limit: 10 } })
+      .then((d) => setData(d))
+      .catch((err) => {
+        toast(err instanceof Error ? err.message : 'No se pudieron cargar los datos.', 'err');
+        setData({ clients: [], rate: null, movements: [] });
+      });
   }, []);
+
+  const clients = useMemo(() => (data?.clients ?? []), [data]);
 
   const totals = useMemo(() => {
     const bs = clients.reduce((acc, c) => acc + c.saldo_bs, 0);
-    const usdHoy = rate && rate.usd_ves > 0 ? bs / rate.usd_ves : 0;
+    const usdHoy = data?.rate && data.rate.usd_ves > 0 ? bs / data.rate.usd_ves : 0;
     return { bs, usdHoy };
-  }, [clients, rate]);
+  }, [clients, data]);
+
+  const recent = data?.movements ?? [];
 
   return (
     <Layout>
@@ -52,7 +56,7 @@ export default function Home() {
             Total a cobrar (Bs)
           </p>
           <p className="mt-1 break-words text-xl font-bold text-slate-900 sm:text-2xl">
-            {fmtBs(totals.bs)}
+            {!data ? '…' : fmtBs(totals.bs)}
           </p>
         </div>
         <div className="min-w-0 rounded-xl bg-white p-4 shadow">
@@ -60,7 +64,7 @@ export default function Home() {
             Equivalente en $ (hoy)
           </p>
           <p className="mt-1 break-words text-xl font-bold text-slate-900 sm:text-2xl">
-            {totals.usdHoy > 0 ? fmtUsd(totals.usdHoy) : '—'}
+            {!data ? '…' : totals.usdHoy > 0 ? fmtUsd(totals.usdHoy) : '—'}
           </p>
         </div>
         <div className="min-w-0 rounded-xl bg-white p-4 shadow">
@@ -68,7 +72,7 @@ export default function Home() {
             Clientes
           </p>
           <p className="mt-1 break-words text-xl font-bold text-slate-900 sm:text-2xl">
-            {clients.length}
+            {!data ? '…' : clients.length}
           </p>
         </div>
       </div>
@@ -80,12 +84,16 @@ export default function Home() {
           </h2>
           {recent.length > 0 && (
             <span className="text-xs text-slate-400">
-              Tasa: {fmtNum(rate?.usd_ves ?? 0)} Bs/USD
+              Tasa: {fmtNum(data?.rate?.usd_ves ?? 0)} Bs/USD
             </span>
           )}
         </div>
 
-        {recent.length === 0 ? (
+        {!data ? (
+          <div className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
+            <Spinner /> Cargando…
+          </div>
+        ) : recent.length === 0 ? (
           <p className="mt-4 rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
             Sin movimientos todavía.
           </p>

@@ -1,18 +1,24 @@
 import { useState, type FormEvent } from 'react';
+import Spinner from '../components/Spinner';
 import { useAuth } from '../auth';
+import { useToast } from '../lib/toast';
 
 export default function Login() {
   const { login } = useAuth();
+  const { toast } = useToast();
   const [pin, setPin] = useState('');
-  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
+    if (busy) return;
+    setBusy(true);
     try {
       await login(pin);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'PIN incorrecto');
+      toast(err instanceof Error ? err.message : 'PIN incorrecto', 'err');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -38,12 +44,16 @@ export default function Login() {
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          className="mt-6 w-full rounded-lg bg-slate-900 py-2.5 font-medium text-white hover:bg-slate-700"
+          disabled={busy}
+          onClick={(e) => {
+            if (busy) e.preventDefault();
+          }}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 font-medium text-white hover:bg-slate-700 disabled:opacity-60"
         >
-          Entrar
+          {busy && <Spinner />}
+          {busy ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
     </div>

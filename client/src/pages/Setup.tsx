@@ -1,14 +1,19 @@
 import { useState, type FormEvent } from 'react';
+import Spinner from '../components/Spinner';
 import { useAuth } from '../auth';
+import { useToast } from '../lib/toast';
 
 export default function Setup() {
   const { setup } = useAuth();
+  const { toast } = useToast();
   const [pin, setPin] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setError('');
     if (!/^\d{4,6}$/.test(pin)) {
       setError('El PIN debe tener entre 4 y 6 dígitos.');
@@ -18,10 +23,12 @@ export default function Setup() {
       setError('Los PIN no coinciden.');
       return;
     }
+    setBusy(true);
     try {
       await setup(pin);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error inesperado');
+      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+      setBusy(false);
     }
   };
 
@@ -60,9 +67,14 @@ export default function Setup() {
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          className="mt-6 w-full rounded-lg bg-slate-900 py-2.5 font-medium text-white hover:bg-slate-700"
+          disabled={busy}
+          onClick={(e) => {
+            if (busy) e.preventDefault();
+          }}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 font-medium text-white hover:bg-slate-700 disabled:opacity-60"
         >
-          Guardar PIN
+          {busy && <Spinner />}
+          {busy ? 'Guardando…' : 'Guardar PIN'}
         </button>
       </form>
     </div>

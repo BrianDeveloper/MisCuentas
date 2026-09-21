@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, ApiError, setToken } from './lib/api';
+import { api, setToken } from './lib/api';
 
 type AuthStatus = 'loading' | 'setup' | 'loggedOut' | 'loggedIn';
 
@@ -25,19 +25,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const info = await api<{ configured: boolean }>('auth', {
-        query: { action: 'status' },
-      });
+      const info = await api<{ configured: boolean; authenticated: boolean }>(
+        'auth',
+        { query: { action: 'status' } },
+      );
       if (!info.configured) {
         setToken(null);
         setStatus('setup');
         return;
       }
-      try {
-        await api<{ ok: boolean }>('auth', { query: { action: 'me' } });
+      if (info.authenticated) {
         setStatus('loggedIn');
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 401) setToken(null);
+      } else {
+        setToken(null);
         setStatus('loggedOut');
       }
     } catch {

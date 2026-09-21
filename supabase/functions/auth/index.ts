@@ -20,7 +20,9 @@ Deno.serve(async (req: Request) => {
   try {
     if (req.method === 'GET') {
       if (action === 'status') {
-        return json({ configured: await isConfigured() });
+        const configured = await isConfigured();
+        const authenticated = configured ? await requireAuth(req) : false;
+        return json({ configured, authenticated });
       }
       if (action === 'me') {
         const ok = await requireAuth(req);

@@ -116,8 +116,22 @@ app Android híbrida con Capacitor.)
 - Las cookies no cruzan dominios (github.io -> supabase.co): el token de sesión va en `localStorage` del navegador.
 - Subir el QR base64 ya no pasa por el servidor Express: va a `qr-upload` (Edge) -> Storage, y `PagoMovilButton`/worker usan su URL pública.
 
+## 6.1 Optimización futura: quitar `supabase-js` de las Edge Functions
+Las funciones usan `npm:@supabase/supabase-js@2` (import pesado que se descarga en cada
+cold start y suma parseo en el arranque). Optimización diferida de las funciones
+`auth`, `clients`, `rates`, `settings`, `qr` y `export`:
+
+- Reemplazar el cliente por `fetch` directo a PostgREST:
+  `POST {SUPABASE_URL}/rest/v1/rpc/...` y `GET {SUPABASE_URL}/rest/v1/tabla?...&apikey={SERVICE_ROLE_KEY}`,
+  con cabecera `Authorization: Bearer {SERVICE_ROLE_KEY}`.
+- Beneficios: bundle menor, cold start más rápido, menos Rust/Wasm compilado en runtime.
+- Riesgo: tocar todas las funciones de una vez (mock de la API del cliente en pruebas).
+- Paliativa ya aplicada: keepalive cada 5 min mantiene las instancias calientes y la app
+  hace menos llamadas (Home 1 en vez de 3, auth de arranque 1 en vez de 2).
+
 ## 7. Fase 7 (OPCIONAL): App Android híbrida con Capacitor
-**Estado: pendiente de decisión.** Solo se hace después de tener la migración lista y la app desplegada en Pages.
+**Estado: aprobado por el usuario.** Se implementará tras la ronda de feedback UX
+(toasts, indicadores de carga) y optimización de velocidad (todas ya aplicadas).
 
 Arquitectura: la app ya será "SPA estático + Supabase/Edge remoto + worker vía URL https", de modo que el wrapper híbrido no cambia nada del backend.
 
