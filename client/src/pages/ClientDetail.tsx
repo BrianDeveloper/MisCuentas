@@ -11,13 +11,8 @@ import {
   type Movement,
   type Rate,
 } from '../lib/api';
-import {
-  fmtBs,
-  fmtDate,
-  fmtNum,
-  fmtUsd,
-  todayInput,
-} from '../lib/format';
+import { sanitizeNotes } from '../lib/validation';
+import { fmtBs, fmtDate, fmtNum, fmtUsd, todayInput } from '../lib/format';
 import { invalidateClientData } from '../lib/cache';
 import { useToast } from '../lib/toast';
 import { useCachedData } from '../lib/useCachedData';
@@ -102,7 +97,7 @@ export default function ClientDetail() {
           currency: mCurrency,
           amount,
           date: mDate,
-          concept: mConcept,
+          concept: sanitizeNotes(mConcept),
         },
       });
       setMAmount('');

@@ -4,6 +4,12 @@ import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
 import { api, downloadExport, type ClientSummary, type Rate } from '../lib/api';
 import { fmtBs, fmtUsd } from '../lib/format';
+import {
+  isValidVzlaPhone,
+  normalizeVzlaPhone,
+  sanitizeNotes,
+  sanitizeText,
+} from '../lib/validation';
 import { invalidateClientData } from '../lib/cache';
 import { useToast } from '../lib/toast';
 import { useCachedData } from '../lib/useCachedData';
@@ -61,10 +67,21 @@ export default function Dashboard() {
     if (busy) return;
     setBusy(true);
     try {
+      const safeName = sanitizeText(name);
+      if (!safeName) {
+        toast('El nombre es obligatorio.', 'err');
+        return;
+      }
+      const safePhone = phone ? normalizeVzlaPhone(phone) : '';
+      if (phone && !isValidVzlaPhone(phone)) {
+        toast('Teléfono inválido. Usa formato 04121234567.', 'err');
+        return;
+      }
+      const safeNotes = sanitizeNotes(notes);
       await api<{ client: { id: number } }>('clients', {
         method: 'POST',
         query: { action: 'create' },
-        body: { name, phone, notes },
+        body: { name: safeName, phone: safePhone, notes: safeNotes },
       });
       setShowForm(false);
       setName('');
