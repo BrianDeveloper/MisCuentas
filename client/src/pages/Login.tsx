@@ -12,9 +12,14 @@ export default function Login() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    const clean = pin.trim();
+    if (!/^\d{4,6}$/.test(clean)) {
+      toast('El PIN debe tener entre 4 y 6 dígitos.', 'err');
+      return;
+    }
     setBusy(true);
     try {
-      await login(pin);
+      await login(clean);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'PIN incorrecto', 'err');
     } finally {
