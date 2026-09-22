@@ -138,3 +138,19 @@ export function sanitizeNotes(text: string): string {
 export function sanitizeText(text: string): string {
   return escapeHtml((text || '').trim());
 }
+
+/**
+ * Valida un PIN de acceso: solo dígitos, entre 4 y 6 caracteres.
+ * No acepta letras, espacios, guiones ni caracteres especiales.
+ */
+export function isValidPin(pin: string): boolean {
+  return /^\d{4,6}$/.test((pin || '').trim());
+}
+
+/**
+ * Normaliza un PIN según se teclea: elimina todo lo que no sea dígito
+ * y recorta a un máximo de 6 caracteres. Aplica en el onChange del input.
+ */
+export function normalizePin(pin: string): string {
+  return (pin || '').replace(/\D/g, '').slice(0, 6);
+}

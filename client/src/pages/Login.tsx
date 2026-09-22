@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import Spinner from '../components/Spinner';
 import { useAuth } from '../auth';
 import { useToast } from '../lib/toast';
+import { isValidPin, normalizePin } from '../lib/validation';
 
 export default function Login() {
   const { login } = useAuth();
@@ -12,14 +13,13 @@ export default function Login() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    const clean = pin.trim();
-    if (!/^\d{4,6}$/.test(clean)) {
+    if (!isValidPin(pin)) {
       toast('El PIN debe tener entre 4 y 6 dígitos.', 'err');
       return;
     }
     setBusy(true);
     try {
-      await login(clean);
+      await login(pin);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'PIN incorrecto', 'err');
     } finally {
@@ -42,10 +42,11 @@ export default function Login() {
           <input
             type="password"
             inputMode="numeric"
+            maxLength={6}
             autoFocus
             autoComplete="current-password"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            onChange={(e) => setPin(normalizePin(e.target.value))}
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>

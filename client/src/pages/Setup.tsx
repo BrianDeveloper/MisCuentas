@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import Spinner from '../components/Spinner';
 import { useAuth } from '../auth';
 import { useToast } from '../lib/toast';
+import { isValidPin, normalizePin } from '../lib/validation';
 
 export default function Setup() {
   const { setup } = useAuth();
@@ -15,7 +16,7 @@ export default function Setup() {
     e.preventDefault();
     if (busy) return;
     setError('');
-    if (!/^\d{4,6}$/.test(pin)) {
+    if (!isValidPin(pin)) {
       setError('El PIN debe tener entre 4 y 6 dígitos.');
       return;
     }
@@ -49,7 +50,8 @@ export default function Setup() {
             inputMode="numeric"
             autoComplete="new-password"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            onChange={(e) => setPin(normalizePin(e.target.value))}
+            maxLength={6}
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>
@@ -60,7 +62,8 @@ export default function Setup() {
             inputMode="numeric"
             autoComplete="new-password"
             value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
+            onChange={(e) => setConfirm(normalizePin(e.target.value))}
+            maxLength={6}
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>
