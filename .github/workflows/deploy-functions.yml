@@ -23,12 +23,7 @@ jobs:
         with:
           version: latest
 
-      - name: Desactivar Docker (deploy sin contenedores, evita rate-limit de ghcr)
-        shell: bash
-        run: |
-          sudo service docker stop 2>/dev/null || sudo systemctl stop docker 2>/dev/null || true
-
       - name: Deploy edge functions
         run: |
           supabase functions deploy clients auth rates export settings qr \
-            --project-ref "$SUPABASE_PROJECT_ID" --legacy-bundle
+            --project-ref "$SUPABASE_PROJECT_ID" --use-api
