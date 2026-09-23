@@ -1,14 +1,28 @@
 import { json } from '../_shared/cors.ts';
 import { handleOptions } from '../_shared/db.ts';
 import {
+  authAttemptStatus,
   checkPin,
+  clientScope,
   configurePin,
   createSession,
   destroySession,
   isConfigured,
+  recordAuthFail,
+  recordAuthSuccess,
   requireAuth,
   bearerOf,
 } from '../_shared/auth.ts';
+
+function lockoutBody(retryAfterSec: number): Response {
+  return json(
+    {
+      error: `Demasiados intentos. Espera ${Math.ceil(retryAfterSec / 60)} min e intenta de nuevo.`,
+      retryAfterSec,
+    },
+    429,
+  );
+}
 
 Deno.serve(async (req: Request) => {
   const preflight = handleOptions(req);
@@ -51,10 +65,15 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === 'login') {
+      const scope = clientScope(req);
+      const status = await authAttemptStatus(scope);
+      if (status.blocked) return lockoutBody(status.retryAfterSec);
       const pin = String(body.pin ?? '');
       if (!(await isConfigured()) || !(await checkPin(pin))) {
+        await recordAuthFail(scope);
         return json({ error: 'PIN incorrecto' }, 401);
       }
+      await recordAuthSuccess(scope);
       const token = await createSession();
       return json({ ok: true, token });
     }
@@ -68,11 +87,16 @@ Deno.serve(async (req: Request) => {
     if (action === 'change-pin') {
       const ok = await requireAuth(req);
       if (!ok) return json({ error: 'No autenticado' }, 401);
+      const scope = clientScope(req);
+      const status = await authAttemptStatus(scope);
+      if (status.blocked) return lockoutBody(status.retryAfterSec);
       const current = String(body.current ?? '');
       const next = String(body.next ?? '');
       if (!(await checkPin(current))) {
+        await recordAuthFail(scope);
         return json({ error: 'PIN actual incorrecto' }, 401);
       }
+      await recordAuthSuccess(scope);
       if (!/^\d{4,6}$/.test(next)) {
         return json({ error: 'El nuevo PIN debe tener entre 4 y 6 dígitos' }, 400);
       }

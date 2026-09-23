@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -21,6 +23,216 @@ body {
 #root {
   max-width: 100%;
   min-width: 0;
+}
+
+/* Ajustes de color para el modo oscuro (clase `dark` en <html>).
+   Se sobreescriben los utilitarios de Tailwind por clase, con mayor
+   especificidad que `.bg-white`/`.text-slate-*`, para no tocar cada
+   componente individualmente. */
+.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+.dark .bg-white {
+  background-color: #1e293b;
+}
+
+.dark .bg-slate-50 {
+  background-color: #1e293b;
+}
+
+.dark .bg-slate-100 {
+  background-color: #111c30;
+}
+
+.dark .bg-red-50 {
+  background-color: #450a0a;
+}
+
+.dark .bg-emerald-50 {
+  background-color: #022c22;
+}
+
+.dark .bg-slate-200 {
+  background-color: #334155;
+}
+
+.dark .text-slate-900 {
+  color: #f8fafc;
+}
+
+.dark .text-red-600 {
+  color: #fca5a5;
+}
+
+.dark .text-emerald-600 {
+  color: #6ee7b7;
+}
+
+.dark .text-emerald-800 {
+  color: #6ee7b7;
+}
+
+.dark .text-amber-600 {
+  color: #fcd34d;
+}
+
+.dark .text-emerald-300 {
+  color: #6ee7b7;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #0f172a;
+  color: #f1f5f9;
+  caret-color: #f1f5f9;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+.dark .border-slate-200 {
+  border-color: #334155;
+}
+
+.dark .border-slate-300 {
+  border-color: #475569;
+}
+
+.dark .text-slate-400 {
+  color: #7c8ba1;
+}
+
+.dark .text-slate-500 {
+  color: #94a3b8;
+}
+
+.dark .text-slate-600 {
+  color: #cbd5e1;
+}
+
+.dark .text-slate-700 {
+  color: #e2e8f0;
+}
+
+.dark .text-slate-800 {
+  color: #f1f5f9;
+}
+
+.dark .bg-red-100 {
+  background-color: #7f1d1d;
+}
+
+.dark .text-red-700 {
+  color: #fecaca;
+}
+
+.dark .bg-emerald-100 {
+  background-color: #064e3b;
+}
+
+.dark .text-emerald-700 {
+  color: #a7f3d0;
+}
+
+.dark .bg-amber-100 {
+  background-color: #78350f;
+}
+
+.dark .text-amber-700 {
+  color: #fde68a;
+}
+
+.dark .bg-sky-100 {
+  background-color: #0c4a6e;
+}
+
+.dark .text-sky-700 {
+  color: #bae6fd;
+}
+
+.dark .bg-indigo-100 {
+  background-color: #312e81;
+}
+
+.dark .text-indigo-700 {
+  color: #c7d2fe;
+}
+
+.dark .bg-violet-100 {
+  background-color: #4c1d95;
+}
+
+.dark .text-violet-700 {
+  color: #ddd6fe;
+}
+
+.dark .bg-gray-100 {
+  background-color: #1e293b;
+}
+
+.dark .text-gray-700 {
+  color: #e2e8f0;
+}
+
+.dark .bg-slate-800 {
+  background-color: #334155;
+}
+
+.dark .shadow {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
+}
+
+.dark .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.6),
+    0 4px 6px -4px rgb(0 0 0 / 0.6);
+}
+
+/* Hover en modo oscuro: los fondos claros de Tailwind harían ilegible
+   el texto claro. Se sobreescriben las variantes hover con los mismos
+   tonos oscuros usados arriba. */
+.dark .hover\:bg-slate-50:hover {
+  background-color: #334155;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155;
+}
+
+.dark .hover\:bg-slate-200:hover {
+  background-color: #1e293b;
+}
+
+.dark .hover\:bg-red-50:hover {
+  background-color: #450a0a;
+}
+
+.dark .hover\:bg-emerald-50:hover {
+  background-color: #022c22;
+}
+
+.dark .hover\:text-red-600:hover {
+  color: #fca5a5;
+}
+
+.dark .hover\:text-slate-800:hover {
+  color: #f1f5f9;
+}
+
+.dark .hover\:text-emerald-600:hover {
+  color: #6ee7b7;
+}
+
+.dark .border-slate-100 {
+  border-color: #334155;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155;
 }
 
 @theme {

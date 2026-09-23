@@ -1,23 +1,24 @@
+import { api, type Rate } from '../api';
+import { queryClient } from './client';
+import { keys, TTL } from './keys';
 import { useCachedData } from './useCachedData';
-import { api, type Rate } from './api';
-import { cacheSet } from './cache';
-import { RATE_TTL_MS } from './cache';
 
 export type { Rate };
 
-export function useRate(): {
+/** Slice Tasa del BCV: lectura cacheada (TTL 5 min) + update optimista del store. */
+export function useTasaStore(): {
   rate: Rate | null;
   refresh: () => Promise<Rate | null>;
   setRate: (r: Rate | null) => Promise<void>;
 } {
   const { data, refresh } = useCachedData<{ rate: Rate | null }>(
-    'rate',
+    keys.rate,
     () => api<{ rate: Rate | null }>('rates', { query: { action: 'latest' } }),
-    { ttlMs: RATE_TTL_MS },
+    { ttlMs: TTL.rate },
   );
 
   const setRate = async (r: Rate | null) => {
-    cacheSet('rate', { rate: r });
+    queryClient.setQueryData([keys.rate], { rate: r });
   };
 
   return {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidPin, normalizePin } from '../../client/src/lib/validation.ts';
+import { isValidPin, normalizePin } from '../src/lib/validation.ts';
 
 test('isValidPin: rechaza cualquier no-dígito (letras, espacios, símbolos)', () => {
   const invalidos = [

@@ -3,8 +3,8 @@ dist/
 *.log
 .DS_Store
 .env
-data/
 client/.env
 supabase/.env
 supabase/.temp/
-worker/data/
+supabase/supabase/
+client/android/app/src/main/assets/public/

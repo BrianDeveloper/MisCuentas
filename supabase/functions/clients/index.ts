@@ -8,6 +8,7 @@ import {
   getLatestRate,
   listClients,
   recentMovements,
+  roundTo,
   runBalance,
   todayLocal,
   type ClientMovement,
@@ -65,6 +66,9 @@ Deno.serve(async (req: Request) => {
           recentMovements(limit),
         ]);
         return json({ clients, rate, movements });
+      }
+      if (action === 'metrics') {
+        return json(await computeMetrics());
       }
       return json({ error: 'Acción inválida' }, 400);
     }
@@ -207,14 +211,16 @@ Deno.serve(async (req: Request) => {
         const id = Number(url.searchParams.get('id'));
         const { data: existing } = await supabase
           .from('movements')
-          .select('id')
+          .select('id, client_id')
           .eq('id', id)
           .maybeSingle();
         if (!existing) {
           return json({ error: 'Movimiento no encontrado' }, 404);
         }
+        const clientId = Number(existing.client_id);
         await supabase.from('movements').delete().eq('id', id);
-        return json({ ok: true });
+        const balance = await clientBalance(clientId);
+        return json({ ok: true, balance });
       }
       return json({ error: 'Acción inválida' }, 400);
     }
@@ -240,4 +246,131 @@ async function clientBalance(clientId: number): Promise<{ saldo_usd: number; sal
     (data ?? []) as Array<{ type: MovementType; amount_usd: number; amount_bs: number }>,
   );
   return { saldo_usd: usd, saldo_bs: bs };
+}
+
+interface MetricsRow {
+  type: MovementType;
+  currency: Currency;
+  amount_usd: number;
+  amount_bs: number;
+  date: string;
+}
+
+function monthDays(ym: string): string[] {
+  const [y, m] = ym.split('-').map(Number);
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const out: string[] = [];
+  for (let d = 1; d <= days; d++) {
+    out.push(`${ym}-${String(d).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+function timeToPay(movements: Array<{ type: MovementType; date: string }>): number {
+  const queue: string[] = [];
+  let total = 0;
+  let count = 0;
+  for (const m of movements) {
+    if (m.type === 'deuda') {
+      queue.push(m.date);
+    } else if (queue.length > 0) {
+      const start = queue.shift()!;
+      const days = Math.round(
+        (Date.parse(m.date + 'T00:00:00') - Date.parse(start + 'T00:00:00')) /
+          (1000 * 60 * 60 * 24),
+      );
+      if (days >= 0) {
+        total += days;
+        count++;
+      }
+    }
+  }
+  return count > 0 ? roundTo(total / count, 1) : 0;
+}
+
+async function computeMetrics() {
+  const today = todayLocal();
+  const ym = today.slice(0, 7);
+  const days = monthDays(ym);
+
+  const [{ data: monthRows }, { data: allRows }, clients, rateHistory] =
+    await Promise.all([
+      supabase
+        .from('movements')
+        .select('type, currency, amount_usd, amount_bs, date')
+        .gte('date', `${ym}-01`)
+        .lte('date', today),
+      supabase
+        .from('movements')
+        .select('type, date')
+        .order('client_id', { ascending: true })
+        .order('date', { ascending: true })
+        .order('id', { ascending: true }),
+      listClients(),
+      supabase
+        .from('rates')
+        .select('date, usd_ves')
+        .order('date', { ascending: false })
+        .limit(30),
+    ]);
+
+  const rows = (monthRows ?? []) as MetricsRow[];
+  const tot = rows.reduce(
+    (acc, r) => {
+      if (r.type === 'abono') {
+        acc.cobrado_bs += r.amount_bs;
+        acc.cobrado_usd += r.amount_usd;
+      } else {
+        acc.deudas_bs += r.amount_bs;
+        acc.deudas_usd += r.amount_usd;
+      }
+      return acc;
+    },
+    { cobrado_bs: 0, cobrado_usd: 0, deudas_bs: 0, deudas_usd: 0 },
+  );
+
+  const byDay = new Map<string, { cobrado_bs: number; deudas_bs: number }>();
+  for (const d of days) byDay.set(d, { cobrado_bs: 0, deudas_bs: 0 });
+  for (const r of rows) {
+    const acc = byDay.get(r.date);
+    if (!acc) continue;
+    if (r.type === 'abono') acc.cobrado_bs += r.amount_bs;
+    else acc.deudas_bs += r.amount_bs;
+  }
+  const serie_diaria = days.map((d) => ({
+    date: d,
+    cobrado: roundTo(byDay.get(d)!.cobrado_bs, 2),
+    deudas: roundTo(byDay.get(d)!.deudas_bs, 2),
+  }));
+
+  const top_deudores = (clients ?? [])
+    .filter((c) => c.saldo_bs > 0)
+    .sort((a, b) => b.saldo_bs - a.saldo_bs)
+    .slice(0, 5)
+    .map((c) => ({
+      id: c.client.id,
+      name: c.client.name,
+      saldo_bs: c.saldo_bs,
+      saldo_usd: c.saldo_usd,
+    }));
+
+  const rate_evolution = ((rateHistory?.data ?? []) as Array<{ date: string; usd_ves: number }>)
+    .reverse()
+    .map((r) => ({ date: r.date, usd_ves: r.usd_ves }));
+
+  return {
+    mes: ym,
+    hoy: today,
+    total: {
+      cobrado_bs: roundTo(tot.cobrado_bs, 2),
+      cobrado_usd: roundTo(tot.cobrado_usd, 2),
+      deudas_bs: roundTo(tot.deudas_bs, 2),
+      deudas_usd: roundTo(tot.deudas_usd, 2),
+    },
+    serie_diaria,
+    top_deudores,
+    dias_promedio_cobro: timeToPay((allRows ?? []) as Array<{ type: MovementType; date: string }>),
+    tasa_hoy: rate_evolution[rate_evolution.length - 1]?.usd_ves ?? 0,
+    rate_evolution,
+  };
 }

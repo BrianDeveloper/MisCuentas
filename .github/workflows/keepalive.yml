@@ -1,4 +1,4 @@
-name: keepalive worker
+name: keepalive edge functions
 
 on:
   schedule:
@@ -9,27 +9,11 @@ permissions:
   contents: read
 
 jobs:
-  ping-worker:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Pinger al worker (evita el sleep de Render Free)
-        shell: bash
-        run: |
-          URL="${WORKER_URL%/}/status"
-          if curl -fsS --max-time 25 -o /dev/null "$URL"; then
-            echo "worker OK"
-          else
-            echo "usando indice (recien despierto)"
-            curl -fsS --max-time 40 -o /dev/null "${WORKER_URL%/}/"
-          fi
-        env:
-          WORKER_URL: ${{ vars.WORKER_URL }}
-
   warm-functions:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        fn: [rates, clients, settings, qr, auth]
+        fn: [rates, clients, settings, qr, auth, export]
     env:
       # Sin sesion, las funciones responden 401 pero la instancia queda caliente.
       FUN_URL: https://adelljptewdngtnljohu.supabase.co/functions/v1/${{ matrix.fn }}

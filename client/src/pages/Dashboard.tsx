@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
-import { api, downloadExport, type ClientSummary, type Rate } from '../lib/api';
+import { downloadExport } from '../lib/api';
 import { fmtBs, fmtUsd } from '../lib/format';
 import {
   isValidVzlaPhone,
@@ -10,31 +10,20 @@ import {
   sanitizeNotes,
   sanitizeText,
 } from '../lib/validation';
-import { invalidateClientData } from '../lib/cache';
 import { useToast } from '../lib/toast';
-import { useCachedData } from '../lib/useCachedData';
+import { useClientesStore, useCreateCliente } from '../lib/store/clients';
+import { hapticSuccess } from '../lib/haptics';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { data, refresh } = useCachedData<{
-    clients: ClientSummary[];
-    rate: Rate | null;
-  }>(
-    'clients',
-    () =>
-      api<{ clients: ClientSummary[]; rate: Rate | null }>('clients', {
-        query: { action: 'list' },
-      }),
-    {
-      onError: (err) => {
-        toast(
-          err instanceof Error ? err.message : 'No se pudieron cargar los clientes.',
-          'err',
-        );
-      },
-    },
-  );
+  const { data } = useClientesStore((err) => {
+    toast(
+      err instanceof Error ? err.message : 'No se pudieron cargar los clientes.',
+      'err',
+    );
+  });
+  const createCliente = useCreateCliente();
   const clients = data?.clients ?? [];
   const rate = data?.rate ?? null;
   const loading = data === undefined;
@@ -65,36 +54,45 @@ export default function Dashboard() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    setBusy(true);
-    try {
-      const safeName = sanitizeText(name);
-      if (!safeName) {
-        toast('El nombre es obligatorio.', 'err');
-        return;
-      }
-      const safePhone = phone ? normalizeVzlaPhone(phone) : '';
-      if (phone && !isValidVzlaPhone(phone)) {
-        toast('Teléfono inválido. Usa formato 04121234567.', 'err');
-        return;
-      }
-      const safeNotes = sanitizeNotes(notes);
-      await api<{ client: { id: number } }>('clients', {
-        method: 'POST',
-        query: { action: 'create' },
-        body: { name: safeName, phone: safePhone, notes: safeNotes },
-      });
-      setShowForm(false);
-      setName('');
-      setPhone('');
-      setNotes('');
-      toast('Cliente creado.', 'ok');
-      invalidateClientData();
-      await refresh();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
-    } finally {
-      setBusy(false);
+    const safeName = sanitizeText(name);
+    if (!safeName) {
+      toast('El nombre es obligatorio.', 'err');
+      return;
     }
+    const safePhone = phone ? normalizeVzlaPhone(phone) : '';
+    if (phone && !isValidVzlaPhone(phone)) {
+      toast('Teléfono inválido. Usa formato 04121234567.', 'err');
+      return;
+    }
+    const safeNotes = sanitizeNotes(notes);
+    setBusy(true);
+    setShowForm(false);
+    setName('');
+    setPhone('');
+    setNotes('');
+    hapticSuccess();
+    createCliente.mutate(
+      {
+        name: safeName,
+        phone: safePhone,
+        notes: safeNotes,
+        tempId: new Date().getTime() * -1,
+      },
+      {
+        onSuccess: (res) => {
+          if (res.queued) {
+            toast('Cliente creado sin conexión. Se sincronizará al reconectar.', 'info');
+          } else {
+            toast('Cliente creado.', 'ok');
+          }
+          setBusy(false);
+        },
+        onError: (err) => {
+          setBusy(false);
+          toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+        },
+      },
+    );
   };
 
   const doExport = async () => {

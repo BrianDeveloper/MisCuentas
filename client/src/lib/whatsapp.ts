@@ -118,24 +118,6 @@ export function buildPagoMovilMessage(
   );
 }
 
-export function buildPagoMovilUrl(opts: {
-  number: string;
-  balanceBs: number;
-  usdHoy: number;
-  pago: PagoMovilConfig;
-  qrUrl: string | null;
-}): string {
-  return buildWhatsAppUrl(
-    opts.number,
-    buildPagoMovilMessage({
-      balanceBs: opts.balanceBs,
-      usdHoy: opts.usdHoy,
-      pago: opts.pago,
-      qrUrl: opts.qrUrl,
-    }),
-  );
-}
-
 /**
  * Descarga la imagen del QR desde la URL y la copia al portapapeles como imagen PNG.
  * Lanza error si el navegador no soporta la Clipboard API o falla la descarga.

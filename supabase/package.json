@@ -1,7 +1,0 @@
-{
-  "name": "supabase-functions",
-  "private": true,
-  "devDependencies": {
-    "@types/node": "^22.10.0"
-  }
-}

@@ -4,23 +4,19 @@ import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
 import WhatsAppButton from '../components/WhatsAppButton';
 import PagoMovilButton from '../components/PagoMovilButton';
-import {
-  api,
-  type Client,
-  type Currency,
-  type Movement,
-  type Rate,
-} from '../lib/api';
+import { type Currency } from '../lib/api';
 import { sanitizeNotes } from '../lib/validation';
 import { fmtBs, fmtDate, fmtNum, fmtUsd, todayInput } from '../lib/format';
-import { invalidateClientData } from '../lib/cache';
 import { useToast } from '../lib/toast';
-import { useCachedData } from '../lib/useCachedData';
-
-interface Detail {
-  client: Client;
-  movements: Movement[];
-}
+import {
+  useClienteStore,
+  useDeleteCliente,
+} from '../lib/store/clients';
+import {
+  useCreateMovimiento,
+  useDeleteMovimiento,
+} from '../lib/store/movements';
+import { hapticSuccess } from '../lib/haptics';
 
 export default function ClientDetail() {
   const { id } = useParams();
@@ -28,21 +24,15 @@ export default function ClientDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const { data, refresh } = useCachedData<Detail & { rate: Rate | null }>(
-    `client:${clientId}`,
-    () =>
-      api<Detail & { rate: Rate | null }>('clients', {
-        query: { action: 'get', id: clientId },
-      }),
-    {
-      onError: (err) => {
-        toast(
-          err instanceof Error ? err.message : 'No se pudo cargar el cliente.',
-          'err',
-        );
-      },
-    },
-  );
+  const { data } = useClienteStore(clientId, (err) => {
+    toast(
+      err instanceof Error ? err.message : 'No se pudo cargar el cliente.',
+      'err',
+    );
+  });
+  const createMovimiento = useCreateMovimiento();
+  const deleteMovimiento = useDeleteMovimiento();
+  const deleteCliente = useDeleteCliente();
   const [error, setError] = useState('');
 
   const [mType, setMType] = useState<'deuda' | 'abono'>('deuda');
@@ -87,51 +77,60 @@ export default function ClientDetail() {
       return;
     }
     setBusy(true);
-    try {
-      await api('clients', {
-        method: 'POST',
-        query: { action: 'movement-create' },
-        body: {
-          client_id: clientId,
-          type: mType,
-          currency: mCurrency,
-          amount,
-          date: mDate,
-          concept: sanitizeNotes(mConcept),
+    setMAmount('');
+    setMConcept('');
+    hapticSuccess();
+    createMovimiento.mutate(
+      {
+        clientId,
+        type: mType,
+        currency: mCurrency,
+        amount,
+        date: mDate,
+        concept: sanitizeNotes(mConcept),
+      },
+      {
+        onSuccess: (res) => {
+          if (res.queued) {
+            toast('Movimiento guardado sin conexión. Se sincronizará al reconectar.', 'info');
+          } else {
+            toast('Movimiento guardado.', 'ok');
+          }
+          setBusy(false);
         },
-      });
-      setMAmount('');
-      setMConcept('');
-      toast('Movimiento guardado.', 'ok');
-      invalidateClientData();
-      await refresh();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
-    } finally {
-      setBusy(false);
-    }
+        onError: (err) => {
+          setBusy(false);
+          toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+        },
+      },
+    );
   };
 
-  const removeMovement = async (movementId: number) => {
+  const removeMovement = (movementId: number) => {
     if (deletingMovId !== null) return;
     if (!window.confirm('¿Eliminar este movimiento?')) return;
     setDeletingMovId(movementId);
-    try {
-      await api('clients', {
-        method: 'DELETE',
-        query: { action: 'movement-delete', id: movementId },
-      });
-      toast('Movimiento eliminado.', 'ok');
-      invalidateClientData();
-      await refresh();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
-    } finally {
-      setDeletingMovId(null);
-    }
+    hapticSuccess();
+    deleteMovimiento.mutate(
+      { clientId, id: movementId },
+      {
+        onSuccess: (res) => {
+          if (res.queued) {
+            toast('Movimiento eliminado sin conexión. Se sincronizará al reconectar.', 'info');
+          } else {
+            toast('Movimiento eliminado.', 'ok');
+          }
+          setDeletingMovId(null);
+        },
+        onError: (err) => {
+          setDeletingMovId(null);
+          toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+        },
+      },
+    );
   };
 
-  const deleteClient = async () => {
+  const deleteClient = () => {
     if (deletingClient) return;
     if (
       !window.confirm(
@@ -140,18 +139,24 @@ export default function ClientDetail() {
     )
       return;
     setDeletingClient(true);
-    try {
-      await api('clients', {
-        method: 'DELETE',
-        query: { action: 'delete', id: clientId },
-      });
-      toast('Cliente eliminado.', 'ok');
-      invalidateClientData();
-      navigate('/clients');
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
-      setDeletingClient(false);
-    }
+    deleteCliente.mutate(
+      { id: clientId },
+      {
+        onSuccess: (res) => {
+          if (res.queued) {
+            toast('Cliente eliminado sin conexión. Se sincronizará al reconectar.', 'info');
+            setDeletingClient(false);
+          } else {
+            toast('Cliente eliminado.', 'ok');
+            navigate('/clients');
+          }
+        },
+        onError: (err) => {
+          setDeletingClient(false);
+          toast(err instanceof Error ? err.message : 'Error inesperado', 'err');
+        },
+      },
+    );
   };
 
   return (

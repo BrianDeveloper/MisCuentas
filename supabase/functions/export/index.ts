@@ -1,5 +1,5 @@
 import { json } from '../_shared/cors.ts';
-import { handleOptions } from '../_shared/db.ts';
+import { handleOptions, supabase } from '../_shared/db.ts';
 import { requireAuth } from '../_shared/auth.ts';
 import {
   fmtNum,
@@ -77,6 +77,49 @@ Deno.serve(async (req: Request) => {
         headers,
         rows,
       );
+    }
+
+    if (action === 'backup') {
+      const [clients, movements, rates, settings] = await Promise.all([
+        supabase.from('clients').select('*').order('id', { ascending: true }),
+        supabase.from('movements').select('*').order('id', { ascending: true }),
+        supabase.from('rates').select('*').order('date', { ascending: true }),
+        supabase.from('app_settings').select('key, value'),
+      ]);
+      return json({
+        version: 1,
+        app: 'Mis Cuentas',
+        exported_at: new Date().toISOString(),
+        clients: clients.data ?? [],
+        movements: movements.data ?? [],
+        rates: rates.data ?? [],
+        settings: (settings.data ?? []).filter((s) => s.key !== 'pin_hash'),
+      });
+    }
+
+    if (action === 'restore' && req.method === 'POST') {
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+      const data = body.data as Record<string, unknown> | undefined;
+      const version = Number(data?.version);
+      if (body.confirm !== true || !data || version !== 1) {
+        return json({ error: 'Respaldo inválido o no confirmado' }, 400);
+      }
+      const required = ['clients', 'movements', 'rates'];
+      if (!required.every((k) => Array.isArray(data[k]))) {
+        return json({ error: 'El respaldo no contiene los datos esperados' }, 400);
+      }
+      const arrays = {
+        clients: (data.clients as unknown[]) ?? [],
+        movements: (data.movements as unknown[]) ?? [],
+        rates: (data.rates as unknown[]) ?? [],
+        settings: (data.settings as unknown[]) ?? [],
+      };
+      const { error } = await supabase.rpc('restore_backup', arrays);
+      if (error) {
+        console.error('[export][restore]', error);
+        return json({ error: 'Error al restaurar el respaldo' }, 500);
+      }
+      return json({ ok: true, restored: (data.clients as unknown[])?.length ?? 0 });
     }
 
     return json({ error: 'Acción inválida' }, 400);

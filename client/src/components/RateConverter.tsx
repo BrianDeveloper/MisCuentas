@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { fmtDate, fmtNum } from '../lib/format';
-import { useRate } from '../lib/useRate';
+import { useTasaStore } from '../lib/store/tasa';
 
 type Cur = 'USD' | 'EUR' | 'BS';
 
@@ -36,7 +36,7 @@ export default function RateConverter() {
   const [from, setFrom] = useState<Cur>('USD');
   const [to, setTo] = useState<Cur>('BS');
   const [amount, setAmount] = useState('100');
-  const { rate } = useRate();
+  const { rate } = useTasaStore();
 
   const usd = rate?.usd_ves ?? 0;
   const eur = rate?.eur_ves ?? 0;

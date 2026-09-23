@@ -1,11 +1,7 @@
-import { useEffect, useState } from 'react';
-import { getSettings, type SettingsResp } from '../lib/settings';
-import {
-  buildBalanceMessage,
-  buildWhatsAppUrl,
-  toWhatsAppNumber,
-} from '../lib/whatsapp';
+import { buildBalanceMessage, buildWhatsAppUrl, toWhatsAppNumber } from '../lib/whatsapp';
+import { useAjustesStore } from '../lib/store/ajustes';
 import { openExternal } from '../lib/links';
+import { hapticLight } from '../lib/haptics';
 
 export default function WhatsAppButton({
   phone,
@@ -20,18 +16,7 @@ export default function WhatsAppButton({
   usdHoy: number;
   rate: number | null;
 }) {
-  const [settings, setSettings] = useState<SettingsResp | null | undefined>(undefined);
-
-  useEffect(() => {
-    let alive = true;
-    getSettings().then((s) => {
-      if (!alive) return;
-      setSettings(s);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const { data: settings } = useAjustesStore();
 
   const number = toWhatsAppNumber(phone);
   if (!number) return null;
@@ -46,7 +31,10 @@ export default function WhatsAppButton({
       href={waHref}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={() => void openExternal(waHref)}
+      onClick={() => {
+        void openExternal(waHref);
+        void hapticLight();
+      }}
       aria-label={`Enviar recordatorio por WhatsApp a ${name}`}
       className="flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
     >

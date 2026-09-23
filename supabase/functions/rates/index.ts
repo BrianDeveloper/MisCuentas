@@ -65,6 +65,20 @@ Deno.serve(async (req: Request) => {
         if (!Number.isFinite(usd_ves) || usd_ves <= 0) {
           return json({ error: 'Tasa inválida, debe ser mayor a 0' }, 400);
         }
+        const { count } = await supabase
+          .from('movements')
+          .select('id', { count: 'exact', head: true })
+          .eq('date', date);
+        if ((count ?? 0) > 0 && body.force !== true) {
+          return json(
+            {
+              error:
+                'Esta fecha ya tiene movimientos registrados. Cambiar la tasa no alterará su historial, pero la dejaría inconsistente con él. Envía force=true para continuar.',
+              needsForce: true,
+            },
+            409,
+          );
+        }
         await upsertRate(
           date,
           usd_ves,

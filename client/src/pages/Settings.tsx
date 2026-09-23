@@ -1,20 +1,27 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import Layout from '../components/Layout';
 import Spinner from '../components/Spinner';
-import { api, type Rate } from '../lib/api';
+import { api, ApiError, fetchBackup, restoreBackup, type BackupData, type Rate } from '../lib/api';
 import { fmtDate, fmtNum } from '../lib/format';
-import { invalidateClientData, invalidateRate } from '../lib/cache';
-import { invalidateSettings } from '../lib/settings';
-import { useRate } from '../lib/useRate';
+import { invalidarClientes, invalidarTasa, invalidarAjustes } from '../lib/store/invalidations';
+import { getRateHistory, getSettings } from '../lib/store/ajustes';
+import { isNative } from '../lib/links';
+import { useTasaStore } from '../lib/store/tasa';
 import { useToast } from '../lib/toast';
+import { isValidPin, normalizePin } from '../lib/validation';
+import { hapticSuccess } from '../lib/haptics';
+import { useTheme } from '../lib/theme';
+import { queueOrRun } from '../lib/offline';
 import {
   DEFAULT_BALANCE_TEMPLATE,
   DEFAULT_PAGO_TEMPLATE,
   type PagoMovilConfig,
 } from '../lib/whatsapp';
 
-type SectionId = 'rate' | 'pago' | 'messages' | 'pin';
-const SECTION_ORDER: SectionId[] = ['rate', 'pago', 'messages', 'pin'];
+type SectionId = 'theme' | 'rate' | 'pago' | 'messages' | 'backup' | 'pin';
+const SECTION_ORDER: SectionId[] = ['theme', 'rate', 'pago', 'messages', 'backup', 'pin'];
 const OPEN_KEY = 'mc_settings_open';
 
 function loadOpenSections(): Set<SectionId> {
@@ -95,7 +102,8 @@ function SubmitBtn({
 
 export default function Settings() {
   const { toast } = useToast();
-  const { rate, refresh: refreshRate } = useRate();
+  const { rate, refresh: refreshRate } = useTasaStore();
+  const { pref: themePref, setPref: setThemePref } = useTheme();
 
   const [history, setHistory] = useState<Rate[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -123,6 +131,9 @@ export default function Settings() {
   const [mPago, setMPago] = useState('');
   const [savingMsgs, setSavingMsgs] = useState(false);
 
+  const [backingUp, setBackingUp] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+
   const [openSections, setOpenSections] = useState<Set<SectionId>>(loadOpenSections);
 
   const toggleSection = (id: SectionId) => {
@@ -137,20 +148,93 @@ export default function Settings() {
     });
   };
 
-  const load = async () => {
+  const doBackup = async () => {
+    if (backingUp) return;
+    setBackingUp(true);
+    try {
+      const data = await fetchBackup();
+      const text = JSON.stringify(data, null, 2);
+      const filename = `mis-cuentas-backup-${data.exported_at.slice(0, 10)}.json`;
+      if (isNative()) {
+        const saved = await Filesystem.writeFile({
+          path: filename,
+          data: text,
+          directory: Directory.Cache,
+          recursive: true,
+        });
+        await Share.share({
+          title: filename,
+          files: [saved.uri],
+          dialogTitle: 'Respaldo Mis Cuentas',
+        });
+      } else {
+        const blob = new Blob([text], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+      toast(`Respaldo de ${data.clients.length} clientes creado.`, 'ok');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al crear el respaldo', 'err');
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const doRestore = async (file: File) => {
+    if (restoring) return;
+    let data: BackupData;
+    try {
+      data = JSON.parse(await file.text()) as BackupData;
+    } catch {
+      toast('El archivo no es un respaldo JSON válido.', 'err');
+      return;
+    }
+    if (data?.version !== 1 || !Array.isArray(data.clients)) {
+      toast('El archivo no es un respaldo de Mis Cuentas.', 'err');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Restaurar eliminará TODOS los datos actuales y los reemplazará por el respaldo (${data.clients.length} clientes). ¿Continuar?`,
+      )
+    )
+      return;
+    setRestoring(true);
+    try {
+      const restored = await restoreBackup(data);
+      toast(`Respaldo restaurado: ${restored} clientes.`, 'ok');
+      invalidarClientes();
+      invalidarTasa();
+      invalidarAjustes();
+      await load(true);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al restaurar el respaldo', 'err');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const load = async (force = false) => {
     const [h, p] = await Promise.all([
-      api<{ history: Rate[] }>('rates', { query: { action: 'history', limit: 15 } }),
-      api<{ pago: PagoMovilConfig | null; msgReminder: string; msgPago: string }>('settings'),
+      getRateHistory(force),
+      getSettings(force),
     ]);
-    setHistory(h.history);
-    setMReminder(p.msgReminder?.trim() ? p.msgReminder : DEFAULT_BALANCE_TEMPLATE);
-    setMPago(p.msgPago?.trim() ? p.msgPago : DEFAULT_PAGO_TEMPLATE);
-    if (p.pago) {
-      setPago(p.pago);
-      setPBanco(p.pago.banco);
-      setPTipoDoc(p.pago.tipoDoc);
-      setPDocumento(p.pago.documento);
-      setPTelefono(p.pago.telefono);
+    setHistory(h ?? []);
+    const cfg = p ?? { pago: null, msgReminder: '', msgPago: '' };
+    setMReminder(cfg.msgReminder?.trim() ? cfg.msgReminder : DEFAULT_BALANCE_TEMPLATE);
+    setMPago(cfg.msgPago?.trim() ? cfg.msgPago : DEFAULT_PAGO_TEMPLATE);
+    if (cfg.pago) {
+      setPago(cfg.pago);
+      setPBanco(cfg.pago.banco);
+      setPTipoDoc(cfg.pago.tipoDoc);
+      setPDocumento(cfg.pago.documento);
+      setPTelefono(cfg.pago.telefono);
     }
   };
 
@@ -172,8 +256,8 @@ export default function Settings() {
           : 'No se encontró una tasa nueva.',
         'ok',
       );
-      invalidateClientData();
-      invalidateRate();
+      invalidarClientes();
+      invalidarTasa();
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error al consultar el BCV.', 'err');
@@ -188,22 +272,60 @@ export default function Settings() {
     setBusyManual(true);
     try {
       const usd_ves = parseFloat(mUsdVes.replace(',', '.'));
-      const r = await api<{ ok: boolean; rate: Rate | null }>('rates', {
-        method: 'POST',
-        query: { action: 'manual' },
-        body: { date: mDate, usd_ves },
-      });
-      toast(
-        r.rate
-          ? `Tasa guardada: ${fmtNum(r.rate.usd_ves)} Bs/USD`
-          : 'Tasa guardada.',
-        'ok',
-      );
-      invalidateClientData();
-      invalidateRate();
+      const body: Record<string, unknown> = { date: mDate, usd_ves };
+      const { queued, result: manualResult } =
+        await queueOrRun<{ ok: boolean; rate: Rate | null }>(
+          'rate-manual',
+          async () => {
+            let res: { ok: boolean; rate: Rate | null };
+            try {
+              res = await api<{ ok: boolean; rate: Rate | null }>('rates', {
+                method: 'POST',
+                query: { action: 'manual' },
+                body,
+              });
+            } catch (err) {
+              if (err instanceof ApiError && err.status === 409) {
+                if (
+                  window.confirm(
+                    'Esta fecha ya tiene movimientos registrados. ¿Forzar el cambio de tasa? (No altera los movimientos ya guardados.)',
+                  )
+                ) {
+                  body.force = true;
+                  res = await api<{ ok: boolean; rate: Rate | null }>('rates', {
+                    method: 'POST',
+                    query: { action: 'manual' },
+                    body,
+                  });
+                } else {
+                  const cancel = new Error('cancelado');
+                  cancel.name = 'ManualRateCancelled';
+                  throw cancel;
+                }
+              } else {
+                throw err;
+              }
+            }
+            return res;
+          },
+          body,
+        );
+      if (queued) {
+        toast('Tasa guardada sin conexión. Se sincronizará al reconectar.', 'info');
+      } else if (manualResult?.rate) {
+        toast(
+          `Tasa guardada: ${fmtNum(manualResult.rate.usd_ves)} Bs/USD`,
+          'ok',
+        );
+      } else {
+        toast('Tasa guardada.', 'ok');
+      }
       setMUsdVes('');
-      await load();
+      invalidarClientes();
+      invalidarTasa();
+      if (!queued) await load();
     } catch (err) {
+      if (err instanceof Error && err.name === 'ManualRateCancelled') return;
       toast(err instanceof Error ? err.message : 'Error al guardar la tasa.', 'err');
     } finally {
       setBusyManual(false);
@@ -213,7 +335,11 @@ export default function Settings() {
   const changePin = async (e: FormEvent) => {
     e.preventDefault();
     if (busyPin) return;
-    if (!/^\d{4,6}$/.test(newPin)) {
+    if (!isValidPin(curPin)) {
+      toast('Ingresa tu PIN actual (4 a 6 dígitos).', 'err');
+      return;
+    }
+    if (!isValidPin(newPin)) {
       toast('El nuevo PIN debe tener entre 4 y 6 dígitos.', 'err');
       return;
     }
@@ -229,6 +355,7 @@ export default function Settings() {
         body: { current: curPin, next: newPin },
       });
       toast('PIN actualizado correctamente.', 'ok');
+      hapticSuccess();
       setCurPin('');
       setNewPin('');
       setConfPin('');
@@ -296,7 +423,8 @@ export default function Settings() {
       setQrFile(null);
       setQrPreview(null);
       toast('Datos de pago móvil guardados.', 'ok');
-      invalidateSettings();
+      hapticSuccess();
+      invalidarAjustes();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error al guardar el pago móvil.', 'err');
     } finally {
@@ -316,7 +444,7 @@ export default function Settings() {
       setQrPreview(null);
       setQrFile(null);
       toast(q.hasQr ? 'No se pudo quitar el QR.' : 'QR eliminado.', q.hasQr ? 'err' : 'ok');
-      invalidateSettings();
+      invalidarAjustes();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Error al quitar el QR.', 'err');
     } finally {
@@ -336,7 +464,8 @@ export default function Settings() {
       setMReminder(r.msgReminder ?? '');
       setMPago(r.msgPago ?? '');
       toast('Mensajes guardados.', 'ok');
-      invalidateSettings();
+      hapticSuccess();
+      invalidarAjustes();
     } catch (err) {
       toast(
         err instanceof Error ? err.message : 'Error al guardar los mensajes.',
@@ -358,6 +487,37 @@ export default function Settings() {
       <h1 className="text-2xl font-bold text-slate-800">Ajustes</h1>
 
       <div className="mt-5 grid gap-6 lg:grid-cols-2">
+        <SectionCard title="Tema" open={openSections.has('theme')} onToggle={() => toggleSection('theme')}>
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-slate-600">
+              Elige el aspecto de la app. «Sistema» sigue el tema de tu
+              dispositivo automáticamente.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ['system', 'Sistema'],
+                  ['light', 'Claro'],
+                  ['dark', 'Oscuro'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setThemePref(value)}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                    themePref === value
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
+
         <SectionCard title="Tasa BCV" open={openSections.has('rate')} onToggle={() => toggleSection('rate')}>
           {rate ? (
             <div className="mt-3 rounded-lg bg-slate-900 p-4 text-white">
@@ -605,6 +765,48 @@ export default function Settings() {
           </form>
         </SectionCard>
 
+        <SectionCard title="Respaldo" open={openSections.has('backup')} onToggle={() => toggleSection('backup')}>
+          <div className="mt-4 space-y-4">
+            <p className="text-sm text-slate-600">
+              Descarga tu base de datos completa (clientes, movimientos, tasas y
+              configuración) para guardarla o restaurarla en otro dispositivo.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={doBackup}
+                disabled={backingUp}
+                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+              >
+                {backingUp && <Spinner />}
+                {backingUp ? 'Creando…' : 'Descargar respaldo'}
+              </button>
+              <label
+                className={`inline-flex max-w-full items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60 ${
+                  restoring ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+                }`}
+              >
+                {restoring && <Spinner />}
+                {restoring ? 'Restaurando…' : 'Restaurar respaldo'}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  disabled={restoring}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void doRestore(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+            <p className="text-xs text-slate-400">
+              Restaurar reemplaza todos los datos actuales (no se puede deshacer).
+            </p>
+          </div>
+        </SectionCard>
+
         <SectionCard title="Cambiar PIN" open={openSections.has('pin')} onToggle={() => toggleSection('pin')}>
           <form onSubmit={changePin} className="mt-4">
             <label className="block text-sm font-medium">
@@ -613,8 +815,9 @@ export default function Settings() {
                 type="password"
                 inputMode="numeric"
                 autoComplete="current-password"
+                maxLength={6}
                 value={curPin}
-                onChange={(e) => setCurPin(e.target.value)}
+                onChange={(e) => setCurPin(normalizePin(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
@@ -624,8 +827,9 @@ export default function Settings() {
                 type="password"
                 inputMode="numeric"
                 autoComplete="new-password"
+                maxLength={6}
                 value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
+                onChange={(e) => setNewPin(normalizePin(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
@@ -635,8 +839,9 @@ export default function Settings() {
                 type="password"
                 inputMode="numeric"
                 autoComplete="new-password"
+                maxLength={6}
                 value={confPin}
-                onChange={(e) => setConfPin(e.target.value)}
+                onChange={(e) => setConfPin(normalizePin(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>

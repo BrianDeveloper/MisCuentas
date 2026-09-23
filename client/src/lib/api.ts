@@ -57,6 +57,35 @@ export interface RecentMovement extends Movement {
   client_phone: string;
 }
 
+export interface MetricsDay {
+  date: string;
+  cobrado: number;
+  deudas: number;
+}
+
+export interface MetricsTopDebtor {
+  id: number;
+  name: string;
+  saldo_bs: number;
+  saldo_usd: number;
+}
+
+export interface Metrics {
+  mes: string;
+  hoy: string;
+  total: {
+    cobrado_bs: number;
+    cobrado_usd: number;
+    deudas_bs: number;
+    deudas_usd: number;
+  };
+  serie_diaria: MetricsDay[];
+  top_deudores: MetricsTopDebtor[];
+  dias_promedio_cobro: number;
+  tasa_hoy: number;
+  rate_evolution: Array<{ date: string; usd_ves: number }>;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -90,14 +119,29 @@ async function doFetch(fn: EdgeFn, opts: ApiOptions): Promise<Response> {
   }
   const qs = params.toString();
   const token = getToken();
-  return fetch(`${FUNCTIONS}/${fn}${qs ? `?${qs}` : ''}`, {
-    method: opts.method ?? 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${FUNCTIONS}/${fn}${qs ? `?${qs}` : ''}`, {
+      method: opts.method ?? 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+  } catch (err) {
+    throw new ApiError(
+      0,
+      err instanceof TypeError
+        ? 'Sin conexión a internet.'
+        : 'No se pudo conectar con el servidor.',
+    );
+  }
+  return res;
+}
+
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 0;
 }
 
 function throwApiError(res: Response, data: unknown): never {
@@ -169,4 +213,27 @@ export async function downloadExport(
     files: [saved.uri],
     dialogTitle: 'Exportar resumen',
   });
+}
+
+export interface BackupData {
+  version: number;
+  app: string;
+  exported_at: string;
+  clients: unknown[];
+  movements: unknown[];
+  rates: unknown[];
+  settings: Array<{ key: string; value: string }>;
+}
+
+export async function fetchBackup(): Promise<BackupData> {
+  return api<BackupData>('export', { query: { action: 'backup' } });
+}
+
+export async function restoreBackup(data: BackupData): Promise<number> {
+  const r = await api<{ ok: boolean; restored: number }>('export', {
+    method: 'POST',
+    query: { action: 'restore' },
+    body: { confirm: true, data },
+  });
+  return r.restored;
 }

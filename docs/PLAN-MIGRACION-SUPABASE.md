@@ -1,168 +1,77 @@
-# Plan de migración: Supabase + GitHub Pages
+# Mis Cuentas — Arquitectura y despliegue
 
-Objetivo: dejar de depender de un servidor propio (Express + SQLite) y publicar la
-app como sitio estático en GitHub Pages, con los datos en Supabase (Postgres) y el
-trabajo de "servidor" resuelto con Supabase (Edge Functions + Storage) y un
-pequeño worker Node para WhatsApp. (Opcional, Fase 7: publicarla también como
-app Android híbrida con Capacitor.)
+Estado actual de la app: SPA estática en GitHub Pages + Supabase (Postgres + Edge
+Functions + Storage) + app Android híbrida con Capacitor. Ya no existe servidor
+propio ni worker de WhatsApp.
 
-- Repo GitHub: **`BrianDeveloper/MisCuentas`** (público) → Pages en
-  `https://brianddeveloper.github.io/MisCuentas/` → `base: '/MisCuentas/'`.
+- Repo GitHub: **`BrianDeveloper/MisCuentas`** (público).
+- Pages: `https://briandeveloper.github.io/MisCuentas/` (`client/vite.config.ts` → `base: '/MisCuentas/'`).
+- Supabase: proyecto `adelljptewdngtnljohu` → `base` en `client/src/lib/api.ts`.
 
-## 1. Arquitectura actual (lo que se va a transformar)
-
-```
-[ Navegador ] --/api/*--> [ Express (Node 24) ]
-                              |-- SQLite (cuentas.db): clients, movements, rates, settings, sessions
-                              |-- Crawl BCV (cheerio) + cron 8:30
-                              |-- Baileys (socket WhatsApp) + QR de pareo
-                              |-- Uploads QR estático (server/data/uploads)
-```
-
-## 2. Arquitectura objetivo
+## Arquitectura
 
 ```
-[ Navegador ] --(SPA estática)--> GitHub Pages  https://<user>.github.io/cuentas/
-      |  supabase-js (RLS, auth propio, Storage)
-      |  Edge Functions (Deno): /bcv-refresh, /bcv-ensure, /auth-* , /qr-*
+[ Navegador / APK Capacitor ] --(SPA estática)--> GitHub Pages  https://<user>.github.io/MisCuentas/
+      |  Edge Functions (Deno): auth, clients, rates, settings, qr, export
       v
-[ Supabase ]  Postgres (clients, movements, rates, app_settings, app_sessions)
-              Storage (bucket publico "qr")
-              pg_cron: tasa BCV diaria 8:30 America/Caracas
-
-[ Navegador ] --(URL estable https)--> [ Worker WhatsApp (Node + Baileys), en tu PC
-                                         expuesto via Tailscale Funnel, sin costo ]
-      rutas del worker: /status /link /qr.png /send  + CORS hacia GitHub Pages
+[ Supabase ]  Postgres (clients, movements, rates, app_settings, app_sessions)  [RLS activo]
+              Storage (bucket público "qr")
 ```
 
-## 3. Qué va a dónde
+Historial:
+- (2026-09, Fases A–C) El backend Express + SQLite se migró a Supabase Edge Functions.
+- El worker de WhatsApp (Baileys) fue eliminado: el envío se simplificó a `wa.me`
+  nativo (`WhatsAppButton` / `PagoMovilButton`) + copia del QR al portapapeles.
+- El directorio `server/` (Express + SQLite legacy) se eliminó del repo; su único
+  resto aprovechable (test de PIN) vive ahora en `client/test/pin.test.mjs`.
 
-| Funcionalidad hoy (server)          | Destino |
-| ----------------------------------- | ------- |
-| clients CRUD, movements, sumarización | Postgres + RLS (supabase-js desde el cliente) |
-| rates (latest/history/manual)        | tabla `rates` + RLS |
-| crawl BCV (bcv.org.ve + histórico)   | Edge Function `bcv-refresh` (bajo demanda) + `bcv-ensure` (al registrar movimiento) + pg_cron diario |
-| auth PIN + sesiones cookie            | Edge Functions `auth-*` + tabla `app_sessions`, token en localStorage (no cookie cross-domain) |
-| settings pago móvil                   | tabla `app_settings` (JSON) + Edge Function `settings-*` |
-| QR upload (base64)                    | Supabase Storage bucket público `qr`, URL pública estable en lugar de `/api/pago/...` |
-| WhatsApp (Baileys, QR, send)          | Worker Node independiente (Baileys + rutas /status /link /qr.png /send). URL estable via Tailscale Funnel. CORS `Access-Control-Allow-Origin` = origen de Pages |
+## Piezas
 
-## 4. Fases
+### Cliente (`client/`)
+- React + Vite + Tailwind, `HashRouter` (rutas: `/` Inicio, `/clients`, `/clients/:id`, `/settings`, `/login`, `/setup`).
+- Auth por PIN (4–6 dígitos, scrypt en la Edge Function) + sesiones de 30 días;
+  token en `localStorage` (`mc_token`).
+- `client/src/lib/api.ts`: llamadas a Edge Functions con `Authorization: Bearer <token>`.
+- Cache en memoria (TTL 20 s) con invalidación tras crear/borrar clientes, movimientos o tasas.
+- WhatsApp: links `wa.me` + copia del QR de pago al portapapeles (`client/src/lib/links.ts`
+  abre en el navegador del sistema en el APK nativo).
 
-### Fase A — Supabase: proyecto, schema y seguridad
-1. Crear proyecto en supabase.com (free tier: 500 MB Postgres, 1 GB Storage, PG cron, Edge).
-2. Script `supabase/migrations/0001_init.sql`: tablas
-   - `clients (id bigint id, name, phone, notes, created_at)`
-   - `movements (id bigint, client_id -> clients, type, currency, amount, rate_bs, amount_usd, amount_bs, concept, date, created_at)`
-   - `rates (date pk, usd_ves, eur_ves)`
-   - `app_settings (key pk, value)`
-   - `app_sessions (token pk, created_at, expires_at)`
-3. RLS: una sola "app owner". Dos modalidades a decidir:
-   - **A1 (recomendada): mantener PIN** — `pin_hash` (scrypt) en `app_settings`; Edge `auth-login` verifica y crea `app_sessions`; políticas RLS comprueban que el token enviado tenga sesión válida.
-   - **A2: Supabase Auth email+password** — más estándar (SDK oficial), pero cambia la UX de PIN.
-4. Storage: bucket `qr` público; subida base64 desde Edge Function (evita CORS/CLO 413 del cliente), URL `https://<proj>.supabase.co/storage/v1/object/public/qr/qr.png`.
-5. (Opcional) migrar datos actuales: exportar SQLite y cargar; como iremos "en limpio", solo se definen las tablas y se configura el QR nuevo en Storage.
+### Edge Functions (`supabase/functions/`, Deno)
+| Función | Se encarga de |
+| ------- | ------------- |
+| `auth` | status, setup, login, change-pin (sesiones) |
+| `clients` | list, home, get, create, delete, movement-create, movement-delete |
+| `rates` | latest, history, refresh (BCV), manual |
+| `settings` | get, update (pago móvil), messages |
+| `qr` | subir/quitar QR (base64 → Storage público) |
+| `export` | resumen y estado de cuenta en CSV (`;`, BOM, formato es-VE) |
 
-### Fase B — Cliente sobre Supabase (GitHub Pages)
-1. `client/vite.config.ts`: `base: '/cuentas/'` y `outDir` mantiene `dist`.
-2. `react-router-dom` → **HashRouter** (evita 404 en rutas profundas de Pages sin reescritura).
-3. Reemplazar `lib/api.ts` por:
-   - `@supabase/supabase-js`: CRUD clients/movements/rates con RLS (token del PIN en localStorage).
-   - Llamadas a Edge Functions con `Authorization: Bearer <token>` para auth/settings/bcv.
-   - El QR del pago móvil se lee de la URL pública de Storage.
-4. `auth.tsx`: login/setup/logout contra `auth-*` (mantiene flujo setup/PIN/loggedOut).
-5. Botones WhatsApp:
-   - `WhatsAppButton` (recordatorio): sin cambios, sigue siendo link `wa.me`.
-   - `PagoMovilButton`: consulta `/status` del worker; si conectado → POST `/send` del worker con `imageUrl` (Storage) y caption; si no → fallback link.
-6. Ajustes: tasa manual/refresh (Edge), pago móvil (Storage), sección WhatsApp apuntando al worker (URL configurable, config guardada en `app_settings`).
+Lógica compartida en `_shared/` (`helpers.ts`, `auth.ts`, `bcv.ts`, `cors.ts`, `db.ts`).
+El orden de tasas BCV consulta `bcv.org.ve` → `/cotizacion` → respaldo DolarAPI; para
+fechas históricas usa finanzasdigital.
 
-### Fase C — Edge Functions (Deno)
-- `auth-status`, `auth-login`, `auth-setup`, `auth-logout` (verificar/crear/borrar `app_sessions`; scrypt vía `npm:scrypt-js` en Deno).
-- `bcv-refresh`: reutilizar lógica de `server/src/bcv.ts` (parseBcvNumber/parseBcvHtml) portada a Deno; upsert en `rates`.
-- `bcv-ensure`: para movimientos con fecha pasada (consulta `rates`, si falta busca histórico en finanzasdigital y guarda).
-- `settings-get`, `settings-put`, `qr-upload`.
-- `settings` clave extra: `whatsappBaseUrl` = URL del worker.
-- pg_cron: `30 8 * * *` -> `select net.http_post(...)` al Edge `bcv-refresh` (o equivalente).
+### Android (Capacitor, `client/android/`)
+- `appId com.bridev.miscuentas`; plugins: browser, filesystem, share.
+- `npm run build:app` = `vite build --base=./ && cap sync android`.
+- `client/android/app/src/main/assets/public/` se genera con `cap sync` y está en `.gitignore`.
+- El APK release se firma con el keystore de debug (instalable por sideload).
 
-### Fase D — Worker WhatsApp (Node + Baileys)
-> **Reactivada (2026-09) en Render Free:** el usuario rechazó wa.me (no adjunta el QR como archivo) y pidió gratis + automático + sin tarjeta + sin PC encendida.
-> El worker volvió a `worker/` (reescrito, no el del historial), se despliega gratis en **Render** vía `render.yaml`, mantiene la sesión de **Baileys respaldada en Supabase Storage** (bucket `wa`, disco efímero de Render) y un keepalive de GitHub Actions (`keepalive.yml`, ping cada 10 min) lo mantiene despierto dentro de las 744 h/mes del plan free (límite 750 h). La UI (Ajustes → Servidor de WhatsApp) guarda `whatsappBaseUrl`/`whatsappToken` en `app_settings`; `PagoMovilButton` envía por el worker y cae a wa.me si no responde.
-> Riesgos honestos: Render free es "no producción"; un reinicio inoportuno entre respaldos (ventana de 5 min) obligaría a re-escanear el QR; margen de horas mensual ajustado (~6 h).
-1. Extraer de `server/src/whatsapp.ts` + `routes/whatsapp.ts` un servicio mínimo: `worker/` con rutas `/status`, `/link` (QR), `/qr.png`, `/send` (acepta `{to, text, imageUrl}` y adjunta descargando la imagen desde Storage).
-2. Su estado y credenciales de sesión viven en su propio filesystem (`worker/data/wa`), **nunca en el repo** (`.gitignore`). En Render ese disco es efímero → `src/storage.ts` respalda la sesión en Supabase Storage (zip versionado por timestamp, conserva 3) y la restaura al arrancar.
-3. Endpoint público estable y HTTPS: **Render free** → `https://<nombre>.onrender.com` → puerto de Render (`PORT`). Sin PC encendida.
-4. CORS: `Access-Control-Allow-Origin: *` (GitHub Pages).
-- **Alternativa contratada:** botón "Pago móvil" cae a `wa.me` con mensaje + línea del QR solo si el worker no está disponible.
+## Despliegue y CI (`.github/workflows/`)
+- `deploy.yml`: en push a `main` → build del cliente → GitHub Pages.
+- `android-build.yml`: en push a `main` (si toca `client/**`) o manual → `assembleRelease` → artefacto `mis-cuentas-apk`.
+- `keepalive.yml`: cada 5 min ping a las Edge Functions (una por ahora: rates, clients,
+  settings, qr, auth, export) para evitar cold starts. (El antiguo ping al worker fue eliminado.)
 
-### Fase E — Deploy GitHub Pages
-- Repo en GitHub. **Importante:** Pages en plan free solo publica repos **públicos**; con repo privado se necesita GitHub Pro. El código del cliente es público (datos reales quedan en Supabase detrás de auth). Alternativa si se quiere repo privado: Netlify Drop/Deploy (free, estático).
-- GitHub Actions (workflow `pages.yml`): `npm ci`, `npm run build -w client`, `actions/upload-pages-artifact` + `actions/deploy-pages`.
-- Dominio final: `https://<user>.github.io/cuentas/`.
+## Comandos
+- `npm install` — instala el workspace (`client`).
+- `npm test` — tests de unidad (`node --import tsx --test client/test/pin.test.mjs`).
+- `npm run build` — `tsc --noEmit && vite build` del cliente.
+- `npm run dev -w client` — servidor de desarrollo Vite.
+- Edge Functions: `deno test`/check vía `supabase/deno.json` (`deno check --all`).
 
-### Fase F — Pruebas y cierre
-- E2E real: login, alta de cliente, movimiento con tasa automática, export CSV, envío de imagen QR por WhatsApp, QR público de Storage.
-- Reproducir en móvil (fuera de la LAN) vía la URL pública de Pages.
-- Cerrar túnel cloudflared actual; documentar en README cómo levantar worker + funnel.
-- Commit de respaldo/rama y limpieza de artefactos locales.
-
-## 5. Decisiones a confirmar antes de ejecutar
-1. **Auth**: **mantener PIN (A1, elegida)** — Edge `auth-*` + tabla `app_sessions`; token en localStorage.
-2. **Worker WhatsApp**: **Tailscale Funnel en tu PC (elegida, $0)** — URL https estable.
-3. **Éxito de Pages en repo público**: **aceptado** — repo `MisCuentas` público.
-4. **Datos**: **migrar** lo actual (clientes, movimientos, tasas, PIN y configuración pago móvil) de SQLite a Supabase vía script `seed.mjs`.
-
-## 6. Fuera de alcance / notas
-- GitHub Pages no puede ejecutar Node: por eso el worker WhatsApp existe aparte.
-- Las cookies no cruzan dominios (github.io -> supabase.co): el token de sesión va en `localStorage` del navegador.
-- Subir el QR base64 ya no pasa por el servidor Express: va a `qr-upload` (Edge) -> Storage, y `PagoMovilButton`/worker usan su URL pública.
-
-## 6.1 Optimización futura: quitar `supabase-js` de las Edge Functions
-Las funciones usan `npm:@supabase/supabase-js@2` (import pesado que se descarga en cada
-cold start y suma parseo en el arranque). Optimización diferida de las funciones
-`auth`, `clients`, `rates`, `settings`, `qr` y `export`:
-
-- Reemplazar el cliente por `fetch` directo a PostgREST:
-  `POST {SUPABASE_URL}/rest/v1/rpc/...` y `GET {SUPABASE_URL}/rest/v1/tabla?...&apikey={SERVICE_ROLE_KEY}`,
-  con cabecera `Authorization: Bearer {SERVICE_ROLE_KEY}`.
-- Beneficios: bundle menor, cold start más rápido, menos Rust/Wasm compilado en runtime.
-- Riesgo: tocar todas las funciones de una vez (mock de la API del cliente en pruebas).
-- Paliativa ya aplicada: keepalive cada 5 min mantiene las instancias calientes y la app
-  hace menos llamadas (Home 1 en vez de 3, auth de arranque 1 en vez de 2).
-
-## 7. Fase 7 (OPCIONAL): App Android híbrida con Capacitor
-**Estado: IMPLEMENTADO (Fases A–C).** El APK se genera automáticamente en
-GitHub Actions; la versión de navegador en GitHub Pages sigue funcionando igual
-(ejecutan el mismo código, misma base de datos, independientes entre sí).
-
-Arquitectura: la app ya es "SPA estático + Supabase/Edge remoto + worker vía URL https",
-de modo que el wrapper híbrido no cambia nada del backend. Se optó por la **opción A
-(APK standalone)**: `vite build --base=./` empaqueta la web dentro del `.apk`.
-
-Detalles que ya la benefician:
-- Supabase (https) y el worker vía Tailscale Funnel funcionan desde Android sin cambios.
-- El token de PIN en `localStorage` persiste en el WebView de Capacitor.
-- El escaneo del QR de vinculación de WhatsApp se hace desde la cámara del móvil igual que hoy.
-- La firma de `assembleRelease` usa el keystore de debug (APK instalable por sideload).
-
-Cómo se hizo:
-- `client/capacitor.config.ts`: `appId com.bridev.miscuentas`, `appName "Mis Cuentas"`,
-  `webDir dist`. Plugins: `@capacitor/browser`, `@capacitor/filesystem`, `@capacitor/share`.
-- `client/scripts/gen-assets.mjs` genera el logo (PNG 1024×1024, monograma "M" sobre
-  moneda esmeralda) y `npx capacitor-assets generate --android` crea los iconos/splash.
-- `client/android/` versionado (builds ignorados vía `client/android/.gitignore`).
-- `client/package.json` → script `build:app`: `tsc --noEmit && vite build --base=./ && cap sync android`.
-- `client/src/lib/links.ts`: en nativo `openExternal()` abre en el navegador del sistema
-  (`Browser.open`); dentro de la WebView ya no se navega a wa.me. Los botones Recordatorio/Pago
-  móvil y el export CSV usan esta vía (CSV nativo: `Filesystem` + `Share`).
-- `client/src/lib/worker.ts`: fallback propio para `AbortSignal.timeout` (WebViews antiguos).
-
-Cómo sacar el APK:
-1. El workflow `.github/workflows/android-build.yml` corre en `push` a `main` (si tocan
-   `client/**`) y manualmente (`workflow_dispatch`).
-2. Descargar el artefacto **mis-cuentas-apk** (Actions → run → Artifacts).
-3. Copiar `app-release.apk` al móvil → instalar (permite "orígenes desconocidos").
-
-Pasos a futuro (no hechos): Play Store/Capacitor Cloud para firma de release con keystore
-propio, nota de versión dentro de la app, `cap sync`/re-build automático vía CI ya cubierto.
-
-Probar manualmente de referencia: login PIN, QR público de Storage y envío WhatsApp desde el móvil.
+## Notas
+- GitHub Pages no ejecuta Node: el envío real de WhatsApp es responsabilidad del
+  móvil del usuario (wa.me); el QR se muestra/copia desde la app.
+- Las cookies no cruzan dominios (github.io -> supabase.co): el token de sesión va en `localStorage`.
+- El subir el QR no pasa por ningún servidor propio: va a la Edge Function `qr` → Storage,
+  y los botones usan su URL pública.

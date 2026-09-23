@@ -6,7 +6,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, setToken } from './lib/api';
+import { api, getToken, setToken, isNetworkError } from './lib/api';
+import { invalidarTodo } from './lib/store/invalidations';
 
 type AuthStatus = 'loading' | 'setup' | 'loggedOut' | 'loggedIn';
 
@@ -40,7 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(null);
         setStatus('loggedOut');
       }
-    } catch {
+    } catch (err) {
+      if (isNetworkError(err) && getToken()) {
+        setStatus('loggedIn');
+        return;
+      }
       setToken(null);
       setStatus('setup');
     }
@@ -57,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: { pin },
     });
     setToken(r.token);
+    invalidarTodo();
     setStatus('loggedIn');
   }, []);
 
@@ -67,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: { pin },
     });
     setToken(r.token);
+    invalidarTodo();
     setStatus('loggedIn');
   }, []);
 
@@ -78,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     } finally {
       setToken(null);
+      invalidarTodo();
       setStatus('loggedOut');
     }
   }, []);

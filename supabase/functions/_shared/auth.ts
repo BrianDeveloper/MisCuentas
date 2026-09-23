@@ -126,3 +126,71 @@ export async function requireAuth(req: Request): Promise<boolean> {
   }
   return true;
 }
+
+const MAX_FAILS = 5;
+const WINDOW_MS = 15 * 60 * 1000;
+const BASE_LOCKOUT_MS = 5 * 60 * 1000;
+const MAX_LOCKOUT_MS = 15 * 60 * 1000;
+
+export function clientScope(req: Request): string {
+  const ip =
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-real-ip') ??
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    null;
+  return ip ? `ip:${ip}` : 'unknown';
+}
+
+interface RateStatus {
+  blocked: boolean;
+  retryAfterSec: number;
+}
+
+export async function authAttemptStatus(scope: string): Promise<RateStatus> {
+  const { data } = await supabase
+    .from('auth_attempts')
+    .select('locked_until')
+    .eq('scope', scope)
+    .maybeSingle();
+  if (!data?.locked_until) return { blocked: false, retryAfterSec: 0 };
+  const lockedUntil = new Date(String(data.locked_until)).getTime();
+  if (lockedUntil <= Date.now()) return { blocked: false, retryAfterSec: 0 };
+  return {
+    blocked: true,
+    retryAfterSec: Math.max(1, Math.ceil((lockedUntil - Date.now()) / 1000)),
+  };
+}
+
+export async function recordAuthFail(scope: string): Promise<void> {
+  const now = Date.now();
+  const { data } = await supabase
+    .from('auth_attempts')
+    .select('fail_count, window_start')
+    .eq('scope', scope)
+    .maybeSingle();
+  let failCount = 1;
+  let windowStart = now;
+  if (data) {
+    const ws = new Date(String(data.window_start)).getTime();
+    if (now - ws <= WINDOW_MS) {
+      failCount = (data.fail_count ?? 0) + 1;
+      windowStart = ws;
+    }
+  }
+  let lockedUntil: number | null = null;
+  if (failCount >= MAX_FAILS) {
+    const level = Math.floor(failCount / MAX_FAILS);
+    const lockoutMs = Math.min(BASE_LOCKOUT_MS * level, MAX_LOCKOUT_MS);
+    lockedUntil = now + lockoutMs;
+  }
+  await supabase.from('auth_attempts').upsert({
+    scope,
+    fail_count: failCount,
+    window_start: new Date(windowStart).toISOString(),
+    locked_until: lockedUntil ? new Date(lockedUntil).toISOString() : null,
+  });
+}
+
+export async function recordAuthSuccess(scope: string): Promise<void> {
+  await supabase.from('auth_attempts').delete().eq('scope', scope);
+}

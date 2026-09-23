@@ -1,13 +1,14 @@
-import { useEffect, useState, type MouseEvent } from 'react';
-import { getSettings, type SettingsResp } from '../lib/settings';
+import { useState, type MouseEvent } from 'react';
 import {
   buildPagoMovilMessage,
   buildWhatsAppUrl,
   toWhatsAppNumber,
   copyQrToClipboard,
 } from '../lib/whatsapp';
+import { useAjustesStore } from '../lib/store/ajustes';
 import { openExternal } from '../lib/links';
 import { useToast } from '../lib/toast';
+import { hapticSuccess } from '../lib/haptics';
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
 
@@ -23,20 +24,9 @@ export default function PagoMovilButton({
   usdHoy: number;
 }) {
   const { toast } = useToast();
-  const [settings, setSettings] = useState<SettingsResp | null | undefined>(undefined);
+  const { data: settings } = useAjustesStore();
   const [send, setSend] = useState<SendState>('idle');
   const [reason, setReason] = useState('');
-
-  useEffect(() => {
-    let alive = true;
-    getSettings().then((s) => {
-      if (!alive) return;
-      setSettings(s);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const pago = settings?.pago ?? null;
   const number = toWhatsAppNumber(phone);
@@ -60,6 +50,7 @@ export default function PagoMovilButton({
       if (qrUrl) {
         await copyQrToClipboard(qrUrl);
         toast('QR copiado al portapapeles', 'ok');
+        hapticSuccess();
       }
     } catch {
       toast('No se pudo copiar el QR (se abrirá WhatsApp)', 'info');
