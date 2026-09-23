@@ -52,10 +52,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create apk-latest \
-            client/android/app/build/outputs/apk/release/*.apk \
-            --target "${{ github.sha }}" \
-            --title "APK Release" --notes "APK actualizado en cada push a main." \
-          || gh release upload apk-latest \
-            client/android/app/build/outputs/apk/release/*.apk \
-            --clobber
+          cd client/android/app/build/outputs/apk/release
+          cp -- *.apk MisCuentas-1.0-debug.apk
+          gh release upload v1.0.0 MisCuentas-1.0-debug.apk --clobber \
+          || gh release create v1.0.0 MisCuentas-1.0-debug.apk \
+             --target "${{ github.ref_name }}" \
+             --title "MisCuentas v1.0.0" \
+             --notes "Version 1.0 - lectura/escritura de cuentas + validaciones. Web + APK debug."
