@@ -12,6 +12,9 @@ concurrency:
   group: android-build-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -44,3 +47,15 @@ jobs:
           name: mis-cuentas-apk
           path: client/android/app/build/outputs/apk/release
           if-no-files-found: error
+
+      - name: Publicar/actualizar Release del APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create apk-latest \
+            client/android/app/build/outputs/apk/release/*.apk \
+            --target "${{ github.sha }}" \
+            --title "APK Release" --notes "APK actualizado en cada push a main." \
+          || gh release upload apk-latest \
+            client/android/app/build/outputs/apk/release/*.apk \
+            --clobber
