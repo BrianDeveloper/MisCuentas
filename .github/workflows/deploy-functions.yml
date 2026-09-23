@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/**'
+      - '.github/workflows/deploy-functions.yml'
 
 permissions:
   contents: read
@@ -25,4 +26,4 @@ jobs:
       - name: Deploy edge functions
         run: |
           supabase functions deploy clients auth rates export settings qr \
-            --project-ref "$SUPABASE_PROJECT_ID"
+            --project-ref "$SUPABASE_PROJECT_ID" --legacy-bundle
