@@ -8,6 +8,7 @@ import { type Currency } from '../lib/api';
 import { sanitizeNotes } from '../lib/validation';
 import { fmtBs, fmtDate, fmtNum, fmtUsd, todayInput } from '../lib/format';
 import { useToast } from '../lib/toast';
+import { useConfirm } from '../lib/confirm';
 import {
   useClienteStore,
   useDeleteCliente,
@@ -23,6 +24,7 @@ export default function ClientDetail() {
   const clientId = Number(id);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const { data } = useClienteStore(clientId, (err) => {
     toast(
@@ -106,9 +108,15 @@ export default function ClientDetail() {
     );
   };
 
-  const removeMovement = (movementId: number) => {
+  const removeMovement = async (movementId: number) => {
     if (deletingMovId !== null) return;
-    if (!window.confirm('¿Eliminar este movimiento?')) return;
+    const ok = await confirm({
+      message: '¿Eliminar este movimiento?',
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      confirmVariant: 'danger',
+    });
+    if (!ok) return;
     setDeletingMovId(movementId);
     hapticSuccess();
     deleteMovimiento.mutate(
@@ -130,14 +138,15 @@ export default function ClientDetail() {
     );
   };
 
-  const deleteClient = () => {
+  const deleteClient = async () => {
     if (deletingClient) return;
-    if (
-      !window.confirm(
-        `¿Eliminar a "${client.name}" y todo su historial? Esta acción no se puede deshacer.`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      message: `¿Eliminar a "${client.name}" y todo su historial? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      confirmVariant: 'danger',
+    });
+    if (!ok) return;
     setDeletingClient(true);
     deleteCliente.mutate(
       { id: clientId },

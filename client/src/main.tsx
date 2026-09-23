@@ -5,6 +5,8 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { queryClient, persister, PERSIST_MAX_AGE, PERSIST_BUSTER } from './lib/queryClient';
 import { AuthProvider, useAuth } from './auth';
 import { ToastProvider } from './lib/toast';
+import { ConfirmProvider } from './lib/confirm';
+import { UserManualProvider } from './lib/userManual';
 import { initTheme } from './lib/theme';
 import { keys, TTL } from './lib/store/keys';
 import { api } from './lib/api';
@@ -14,10 +16,10 @@ import Login from './pages/Login';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import ClientDetail from './pages/ClientDetail';
-import Settings from './pages/Settings';
 import Spinner from './components/Spinner';
 
 const Stats = lazy(() => import('./pages/Stats'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 /** Precarga tasa + ajustes al entrar en sesión (cache-first para todas las vistas). */
 function SessionLoader() {
@@ -61,7 +63,7 @@ function Shell() {
         <Route path="/clients" element={<Dashboard />} />
         <Route path="/clients/:id" element={<ClientDetail />} />
         <Route path="/stats" element={<Suspense fallback={<Spinner />}><Stats /></Suspense>} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/settings" element={<Suspense fallback={<Spinner />}><Settings /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
@@ -75,11 +77,15 @@ function App() {
       persistOptions={{ persister, maxAge: PERSIST_MAX_AGE, buster: PERSIST_BUSTER }}
     >
       <ToastProvider>
-        <AuthProvider>
-          <HashRouter>
-            <Shell />
-          </HashRouter>
-        </AuthProvider>
+        <ConfirmProvider>
+          <UserManualProvider>
+            <AuthProvider>
+              <HashRouter>
+                <Shell />
+              </HashRouter>
+            </AuthProvider>
+          </UserManualProvider>
+        </ConfirmProvider>
       </ToastProvider>
     </PersistQueryClientProvider>
   );
@@ -92,3 +98,5 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+

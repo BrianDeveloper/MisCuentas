@@ -78,10 +78,6 @@ async function writeQueue(ops: PendingOp[]): Promise<void> {
   emitChange();
 }
 
-export function clearQueueForTest(): Promise<void> {
-  return writeQueue([]);
-}
-
 function uidFor(kind: PendingKind): string {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

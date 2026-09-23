@@ -19,7 +19,7 @@ const persister = {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 20_000,
+      staleTime: 60_000,
       gcTime: 1000 * 60 * 60 * 24 * 30,
       retry: 1,
       refetchOnWindowFocus: false,

@@ -10,6 +10,8 @@ import { getRateHistory, getSettings } from '../lib/store/ajustes';
 import { isNative } from '../lib/links';
 import { useTasaStore } from '../lib/store/tasa';
 import { useToast } from '../lib/toast';
+import { useConfirm } from '../lib/confirm';
+import { useUserManual } from '../lib/userManual';
 import { isValidPin, normalizePin } from '../lib/validation';
 import { hapticSuccess } from '../lib/haptics';
 import { useTheme } from '../lib/theme';
@@ -20,8 +22,8 @@ import {
   type PagoMovilConfig,
 } from '../lib/whatsapp';
 
-type SectionId = 'theme' | 'rate' | 'pago' | 'messages' | 'backup' | 'pin';
-const SECTION_ORDER: SectionId[] = ['theme', 'rate', 'pago', 'messages', 'backup', 'pin'];
+type SectionId = 'theme' | 'rate' | 'pago' | 'messages' | 'backup' | 'pin' | 'manual';
+const SECTION_ORDER: SectionId[] = ['theme', 'rate', 'pago', 'messages', 'backup', 'pin', 'manual'];
 const OPEN_KEY = 'mc_settings_open';
 
 function loadOpenSections(): Set<SectionId> {
@@ -104,6 +106,8 @@ export default function Settings() {
   const { toast } = useToast();
   const { rate, refresh: refreshRate } = useTasaStore();
   const { pref: themePref, setPref: setThemePref } = useTheme();
+  const confirm = useConfirm();
+  const openManual = useUserManual();
 
   const [history, setHistory] = useState<Rate[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -199,12 +203,13 @@ export default function Settings() {
       toast('El archivo no es un respaldo de Mis Cuentas.', 'err');
       return;
     }
-    if (
-      !window.confirm(
-        `Restaurar eliminará TODOS los datos actuales y los reemplazará por el respaldo (${data.clients.length} clientes). ¿Continuar?`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      message: `Restaurar eliminará TODOS los datos actuales y los reemplazará por el respaldo (${data.clients.length} clientes). ¿Continuar?`,
+      confirmLabel: 'Restaurar',
+      cancelLabel: 'Cancelar',
+      confirmVariant: 'danger',
+    });
+    if (!ok) return;
     setRestoring(true);
     try {
       const restored = await restoreBackup(data);
@@ -270,10 +275,11 @@ export default function Settings() {
     e.preventDefault();
     if (busyManual) return;
     setBusyManual(true);
+    let queued = false;
     try {
       const usd_ves = parseFloat(mUsdVes.replace(',', '.'));
       const body: Record<string, unknown> = { date: mDate, usd_ves };
-      const { queued, result: manualResult } =
+      const { queued: q, result: manualResult } =
         await queueOrRun<{ ok: boolean; rate: Rate | null }>(
           'rate-manual',
           async () => {
@@ -286,22 +292,7 @@ export default function Settings() {
               });
             } catch (err) {
               if (err instanceof ApiError && err.status === 409) {
-                if (
-                  window.confirm(
-                    'Esta fecha ya tiene movimientos registrados. ¿Forzar el cambio de tasa? (No altera los movimientos ya guardados.)',
-                  )
-                ) {
-                  body.force = true;
-                  res = await api<{ ok: boolean; rate: Rate | null }>('rates', {
-                    method: 'POST',
-                    query: { action: 'manual' },
-                    body,
-                  });
-                } else {
-                  const cancel = new Error('cancelado');
-                  cancel.name = 'ManualRateCancelled';
-                  throw cancel;
-                }
+                throw err;
               } else {
                 throw err;
               }
@@ -310,6 +301,7 @@ export default function Settings() {
           },
           body,
         );
+      queued = q;
       if (queued) {
         toast('Tasa guardada sin conexión. Se sincronizará al reconectar.', 'info');
       } else if (manualResult?.rate) {
@@ -326,7 +318,41 @@ export default function Settings() {
       if (!queued) await load();
     } catch (err) {
       if (err instanceof Error && err.name === 'ManualRateCancelled') return;
-      toast(err instanceof Error ? err.message : 'Error al guardar la tasa.', 'err');
+      if (err instanceof ApiError && err.status === 409) {
+        const ok = await confirm({
+          message: 'Esta fecha ya tiene movimientos registrados. ¿Forzar el cambio de tasa? (No altera los movimientos ya guardados.)',
+          confirmLabel: 'Forzar',
+          cancelLabel: 'Cancelar',
+          confirmVariant: 'danger',
+        });
+        if (ok) {
+          try {
+            const bodyWithForce: Record<string, unknown> = { date: mDate, usd_ves: mUsdVes, force: true };
+            const result = await api<{ ok: boolean; rate: Rate | null }>('rates', {
+              method: 'POST',
+              query: { action: 'manual' },
+              body: bodyWithForce,
+            });
+            if (result.rate) {
+              toast(
+                `Tasa guardada: ${fmtNum(result.rate.usd_ves)} Bs/USD`,
+                'ok',
+              );
+            } else {
+              toast('Tasa guardada.', 'ok');
+            }
+            setMUsdVes('');
+            invalidarClientes();
+            invalidarTasa();
+            if (!queued) await load();
+          } catch (retryErr) {
+            if (retryErr instanceof Error && retryErr.name === 'ManualRateCancelled') return;
+            toast(retryErr instanceof Error ? retryErr.message : 'Error al guardar la tasa.', 'err');
+          }
+        }
+      } else {
+        toast(err instanceof Error ? err.message : 'Error al guardar la tasa.', 'err');
+      }
     } finally {
       setBusyManual(false);
     }
@@ -852,6 +878,21 @@ export default function Settings() {
               className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
             />
           </form>
+        </SectionCard>
+        <SectionCard title="Manual de uso" open={openSections.has('manual')} onToggle={() => toggleSection('manual')}>
+          <div className="mt-3 space-y-4">
+            <p className="text-sm text-slate-600">
+              Guía interactiva con 5 tarjetas que cubren todas las
+              funcionalidades de la app.
+            </p>
+            <button
+              type="button"
+              onClick={openManual}
+              className="w-full rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              Ver manual de uso
+            </button>
+          </div>
         </SectionCard>
       </div>
     </Layout>

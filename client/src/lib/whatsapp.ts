@@ -10,7 +10,7 @@ export function toWhatsAppNumber(phone: string): string | null {
   return digits;
 }
 
-const PLACEHOLDER_RE = /\{([a-zA-Z]+)\}/g;
+const PLACEHOLDER_KEYS = ['nombre', 'fecha', 'monto', 'usd', 'tasa', 'banco', 'tipo', 'documento', 'telefono', 'qr'] as const;
 
 export const DEFAULT_BALANCE_TEMPLATE = [
   'Hola {nombre}!',
@@ -37,20 +37,33 @@ export const DEFAULT_PAGO_TEMPLATE = [
   '¡Gracias!',
 ].join('\n');
 
+const INVISIBLE = new Set([
+  '\u00AD', '\u200B', '\u200C', '\u200D', '\u200E', '\u200F',
+  '\u2028', '\u2029', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+  '\u2060', '\u2061', '\u2062', '\u2063', '\u2064',
+  '\uFEFF', '\uFFF9', '\uFFFA', '\uFFFB',
+]);
+
+function sanitize(str: string): string {
+  return [...str].filter(c => !INVISIBLE.has(c) && c !== '*').join('');
+}
+
 function renderTemplate(
   template: string,
   vars: Record<string, string>,
 ): string {
-  const lines = template.split('\n');
+  const text = sanitize(template);
+  const lines = text.split('\n');
   const rendered: string[] = [];
   for (const raw of lines) {
-    let empty = false;
-    const line = raw.replace(PLACEHOLDER_RE, (_m, key: string) => {
+    let skip = false;
+    let line = sanitize(raw);
+    for (const key of PLACEHOLDER_KEYS) {
       const value = vars[key] ?? '';
-      if (value === '') empty = true;
-      return value;
-    });
-    if (empty) continue;
+      if (line.includes(`{${key}}`) && value === '') { skip = true; break; }
+      line = line.split(`{${key}}`).join(value);
+    }
+    if (skip) continue;
     rendered.push(line.trimEnd());
   }
   return rendered
@@ -78,10 +91,6 @@ export function buildBalanceMessage(
       tasa: opts.rate != null && opts.rate > 0 ? fmtNum(opts.rate) : '',
     },
   );
-}
-
-export function buildWhatsAppUrl(number: string, message: string): string {
-  return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 }
 
 export interface PagoMovilConfig {

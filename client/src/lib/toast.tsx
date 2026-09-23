@@ -9,9 +9,9 @@ import {
 } from 'react';
 import { Toasts } from '../components/Toasts';
 
-export type ToastType = 'ok' | 'err' | 'info';
+type ToastType = 'ok' | 'err' | 'info';
 
-export interface ToastItem {
+interface ToastItem {
   id: number;
   type: ToastType;
   message: string;

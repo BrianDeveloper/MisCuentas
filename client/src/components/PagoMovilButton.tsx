@@ -1,12 +1,11 @@
 import { useState, type MouseEvent } from 'react';
 import {
   buildPagoMovilMessage,
-  buildWhatsAppUrl,
   toWhatsAppNumber,
   copyQrToClipboard,
 } from '../lib/whatsapp';
 import { useAjustesStore } from '../lib/store/ajustes';
-import { openExternal } from '../lib/links';
+import { openWhatsApp } from '../lib/links';
 import { useToast } from '../lib/toast';
 import { hapticSuccess } from '../lib/haptics';
 
@@ -39,7 +38,6 @@ export default function PagoMovilButton({
     { balanceBs, usdHoy, pago, qrUrl },
     settings?.msgPago,
   );
-  const waHref = buildWhatsAppUrl(number, text);
 
   const sendPago = async (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
@@ -57,7 +55,7 @@ export default function PagoMovilButton({
     }
     setSend('sent');
     setTimeout(() => setSend('idle'), 2500);
-    void openExternal(waHref);
+    void openWhatsApp(number, text);
   };
 
   const label =
@@ -71,7 +69,7 @@ export default function PagoMovilButton({
 
   return (
     <a
-      href={waHref}
+      href="#"
       target="_blank"
       rel="noopener noreferrer"
       onClick={sendPago}

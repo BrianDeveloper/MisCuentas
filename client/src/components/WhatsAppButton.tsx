@@ -1,6 +1,6 @@
-import { buildBalanceMessage, buildWhatsAppUrl, toWhatsAppNumber } from '../lib/whatsapp';
+import { buildBalanceMessage, toWhatsAppNumber } from '../lib/whatsapp';
 import { useAjustesStore } from '../lib/store/ajustes';
-import { openExternal } from '../lib/links';
+import { openWhatsApp } from '../lib/links';
 import { hapticLight } from '../lib/haptics';
 
 export default function WhatsAppButton({
@@ -24,15 +24,14 @@ export default function WhatsAppButton({
     { name, balanceBs, usdHoy, rate },
     settings?.msgReminder,
   );
-  const waHref = buildWhatsAppUrl(number, message);
 
   return (
     <a
-      href={waHref}
+      href="#"
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => {
-        void openExternal(waHref);
+        void openWhatsApp(number, message);
         void hapticLight();
       }}
       aria-label={`Enviar recordatorio por WhatsApp a ${name}`}

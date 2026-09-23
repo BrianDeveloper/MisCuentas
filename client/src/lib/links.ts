@@ -12,3 +12,12 @@ export async function openExternal(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
+
+export function openWhatsApp(phone: string, message: string): void {
+  const encoded = encodeURIComponent(message.replace(/\n/g, '\n'));
+  if (isNative()) {
+    window.location.href = `whatsapp://send?phone=${phone}&text=${encoded}`;
+  } else {
+    openExternal(`https://api.whatsapp.com/send?phone=${phone}&text=${encoded}`);
+  }
+}
