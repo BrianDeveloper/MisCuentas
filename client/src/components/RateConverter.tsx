@@ -53,7 +53,7 @@ export default function RateConverter() {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-3">
+    <div className="fixed bottom-24 right-4 z-40 flex flex-col items-end gap-3 md:bottom-4">
       {open && (
         <div className="animate-conv-in w-[290px] max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-2xl">
           <div className="mb-1 flex items-center justify-between">
